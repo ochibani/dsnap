@@ -3471,7 +3471,7 @@ pub fn temp_snapshots_clear() -> Result<(), Error> {
             } else {
                 eprintln!("{} is busy.", snapshot.to_str().unwrap());
             }
-        } else if snapshot.to_str().unwrap().contains("var") {
+        } else if snapshot.to_str().unwrap().contains("var-chr") {
             // Make sure the path isn't being used
             if !is_mounted(&snapshot) {
                 delete_subvolume(snapshot.to_str().unwrap())?;
