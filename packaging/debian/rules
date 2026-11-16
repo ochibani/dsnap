@@ -1,0 +1,23 @@
+#!/usr/bin/make -f
+
+export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	cargo build --release --locked
+
+override_dh_auto_test:
+
+override_dh_auto_install:
+	install -Dm755 target/release/dsnap debian/dsnap/usr/bin/dsnap
+	install -Dm644 packaging/systemd/dsnap.service debian/dsnap/usr/lib/systemd/system/dsnap.service
+	install -Dm644 packaging/systemd/dsnap.timer debian/dsnap/usr/lib/systemd/system/dsnap.timer
+	install -Dm644 target/release/build/dsnap-*/out/dsnap.bash debian/dsnap/usr/share/bash-completion/completions/dsnap
+	install -Dm644 target/release/build/dsnap-*/out/_dsnap debian/dsnap/usr/share/zsh/vendor-completions/_dsnap
+	install -Dm644 target/release/build/dsnap-*/out/dsnap.fish debian/dsnap/usr/share/fish/vendor_completions.d/dsnap.fish
+
+# Ship the units but never enable or start them (disabled by default).
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start

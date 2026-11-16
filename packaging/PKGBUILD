@@ -1,0 +1,37 @@
+# Maintainer: Chibani <11yzyv86j@relay.firefox.com>
+pkgname="dsnap-git"
+pkgver=r470.9953135
+pkgrel=1
+pkgdesc="An immutable tree-shaped meta-distribution using snapshots."
+url="https://github.com/ochibani/dsnap"
+arch=("x86_64")
+license=("AGPL-3.0-only")
+depends=("btrfs-progs" "coreutils" "curl" "efibootmgr" "pacman" "paru" "python-anytree" "sed" "rc-local")
+makedepends=("cargo" "git")
+optdepends=("grub" "systemd")
+provides=("dsnap")
+conflicts=("dsnap")
+source=("$pkgname::git+https://github.com/ochibani/dsnap.git")
+sha512sums=('SKIP')
+
+pkgver() {
+  cd "$pkgname"
+  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+  cd "$pkgname"
+  export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+  cargo build --release --locked --target-dir=target
+}
+
+package() {
+  mkdir -p "$pkgdir/usr/bin/"
+  cd "$pkgname"
+  install -Dm755 "target/release/dsnap" "${pkgdir}/usr/bin/dsnap"
+  install -Dm644 "packaging/systemd/dsnap.service" "${pkgdir}/usr/lib/systemd/system/dsnap.service"
+  install -Dm644 "packaging/systemd/dsnap.timer" "${pkgdir}/usr/lib/systemd/system/dsnap.timer"
+  install -Dm644 "target/release/build/dsnap-"*"/out/dsnap.bash" "${pkgdir}/usr/share/bash-completion/completions/dsnap"
+  install -Dm644 "target/release/build/dsnap-"*"/out/_dsnap" "${pkgdir}/usr/share/zsh/site-functions/_dsnap"
+  install -Dm644 "target/release/build/dsnap-"*"/out/dsnap.fish" "${pkgdir}/usr/share/fish/vendor_completions.d/dsnap.fish"
+}

@@ -1,0 +1,5 @@
+dsnap (0.1.0-1) unstable; urgency=medium
+
+  * Initial release (renamed from ash to dsnap).
+
+ -- Chibani <11yzyv86j@relay.firefox.com>  Sun, 15 Nov 2026 00:00:00 +0000

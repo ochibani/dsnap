@@ -1,0 +1,10 @@
+[Unit]
+Description=dsnap auto-upgrade of the current snapshot
+Documentation=https://github.com/ochibani/dsnap
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/.snapshots
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/dsnap auto-upgrade
