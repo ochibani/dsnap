@@ -1747,10 +1747,9 @@ pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir) -> Resul
             }
         }
         if !mutable_dirs_shared.is_empty() {
-            // Clean old mutable_dirs_shared
-            if Path::new("/.snapshots/mutable_dirs/").try_exists()? {
-                remove_dir_content("/.snapshots/mutable_dirs/")?;
-            }
+            // Never wipe the shared store: it is persistent data bind-mounted
+            // into the deployed system (e.g. /var) and shared by every
+            // snapshot. Only ensure the configured subdirectories exist
             for mount_path in mutable_dirs_shared {
                 if allow_dir_mut(mount_path) {
                     // Create mouth_path directory in snapshot
@@ -1920,10 +1919,9 @@ pub fn import_base(path: &str, tmp_dir: &TempDir) -> Result<String, Error> {
             }
         }
         if !mutable_dirs_shared.is_empty() {
-            // Clean old mutable_dirs_shared
-            if Path::new("/.snapshots/mutable_dirs/").try_exists()? {
-                remove_dir_content("/.snapshots/mutable_dirs/")?;
-            }
+            // Never wipe the shared store: it is persistent data bind-mounted
+            // into the deployed system (e.g. /var) and shared by every
+            // snapshot. Only ensure the configured subdirectories exist
             for mount_path in mutable_dirs_shared {
                 if allow_dir_mut(mount_path) {
                     // Create mouth_path directory in snapshot
@@ -2643,10 +2641,9 @@ pub fn prepare(snapshot: &str) -> Result<(), Error> {
         }
     }
     if !mutable_dirs_shared.is_empty() {
-        // Clean old mutable_dirs_shared
-        if Path::new("/.snapshots/mutable_dirs/").try_exists()? {
-            remove_dir_content("/.snapshots/mutable_dirs/")?;
-        }
+        // Never wipe the shared store: it is persistent data bind-mounted
+        // into the deployed system (e.g. /var) and shared by every
+        // snapshot. Only ensure the configured subdirectories exist
         for mount_path in mutable_dirs_shared {
             if allow_dir_mut(mount_path) {
                 // Create mouth_path directory in snapshot
