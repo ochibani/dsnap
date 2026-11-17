@@ -757,7 +757,11 @@ pub fn clone_recursive(snapshot: &str) -> Result<(), Error> {
             let parent = get_parent(&tree, &child).unwrap().to_string();
             let index = children.iter().position(|x| x == &parent).unwrap();
             let i = clone_under(&new_children[index], &child)?;
-            new_children[index] = i.to_string();
+            // Record the new id at the CHILD's position so the next child
+            // of the same parent attaches to the clone, not to the
+            // original node still in the list
+            let child_index = children.iter().position(|x| x == &child).unwrap();
+            new_children[child_index] = i.to_string();
         }
     }
     Ok(())
@@ -779,23 +783,24 @@ pub fn clone_under(snapshot: &str, branch: &str) -> Result<i32, Error> {
     } else {
 
         // Check mutability
-        let immutability = if check_mutability(snapshot) {
+        let immutability = if check_mutability(branch) {
            false
         } else {
            true
         };
 
-        // Create snapshot
-        create_snapshot(&format!("/.snapshots/boot/boot-{}", snapshot),
+        // Create snapshot: the new branch is a copy of branch, attached
+        // under snapshot
+        create_snapshot(&format!("/.snapshots/boot/boot-{}", branch),
                         &format!("/.snapshots/boot/boot-{}", i),
                         immutability)?;
-        create_snapshot(&format!("/.snapshots/etc/etc-{}", snapshot),
+        create_snapshot(&format!("/.snapshots/etc/etc-{}", branch),
                         &format!("/.snapshots/etc/etc-{}", i),
                         immutability)?;
-        create_snapshot(&format!("/.snapshots/var/var-{}", snapshot),
+        create_snapshot(&format!("/.snapshots/var/var-{}", branch),
                         &format!("/.snapshots/var/var-{}", i),
                         immutability)?;
-        create_snapshot(&format!("/.snapshots/rootfs/snapshot-{}", snapshot),
+        create_snapshot(&format!("/.snapshots/rootfs/snapshot-{}", branch),
                         &format!("/.snapshots/rootfs/snapshot-{}", i),
                         immutability)?;
 
