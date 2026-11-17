@@ -4188,15 +4188,18 @@ pub fn upgrade(snapshot:  &str, baseup: bool, noconfirm: bool) -> Result<(), Err
         // Default upgrade behaviour is now "safe" update, meaning failed updates get fully discarded
         let excode = upgrade_helper(snapshot, noconfirm);
         if excode.is_ok() {
-            if post_transactions(snapshot).is_ok() {
-                if baseup {
-                    if deploy_recovery(snapshot).is_err() {
-                        return Err(Error::new(ErrorKind::Other,
-                                              format!("Failed to deploy recovery snapshot.")));
-                    }
-                }
-                println!("Snapshot {} upgraded successfully.", snapshot);
+            if post_transactions(snapshot).is_err() {
+                chr_delete(snapshot)?;
+                return Err(Error::new(ErrorKind::Other,
+                                      format!("Post-upgrade cleanup failed and changes discarded.")));
             }
+            if baseup {
+                if deploy_recovery(snapshot).is_err() {
+                    return Err(Error::new(ErrorKind::Other,
+                                          format!("Failed to deploy recovery snapshot.")));
+                }
+            }
+            println!("Snapshot {} upgraded successfully.", snapshot);
         } else {
             chr_delete(snapshot)?;
             return Err(Error::new(ErrorKind::Other,
