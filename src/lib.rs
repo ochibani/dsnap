@@ -3981,7 +3981,7 @@ fn uninstall_profile(snapshot: &str, profile: &str, user_profile: &str, noconfir
 
         // Ignore empty file
         if !profconf.sections().contains(&"profile-packages".to_string()) &&
-            !profconf.sections().contains(&"install-commands".to_string())
+            !profconf.sections().contains(&"uninstall-commands".to_string())
         {
             return Err(Error::new(ErrorKind::InvalidInput,
                                   format!("The profile is empty or invalid.")));
@@ -4037,7 +4037,7 @@ fn uninstall_profile_live(snapshot: &str,profile: &str, user_profile: &str, noco
 
     // Ignore empty file
     if !profconf.sections().contains(&"profile-packages".to_string()) &&
-        !profconf.sections().contains(&"install-commands".to_string())
+        !profconf.sections().contains(&"uninstall-commands".to_string())
     {
         return Err(Error::new(ErrorKind::InvalidInput,
                               format!("The profile is empty or invalid.")));
