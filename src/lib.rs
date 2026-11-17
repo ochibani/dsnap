@@ -3148,6 +3148,9 @@ pub fn snapshot_config_edit(snapshot: &str) -> Result<(), Error> {
         Command::new("sh").arg("-c")
                           .arg(format!("$EDITOR /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/dsnap.conf", snapshot))
                           .status()?;
+            // Commit the edit to etc-N and clean up the chroot, otherwise the
+            // edit is silently discarded by the next prepare()
+            post_transactions(snapshot)?;
             } else {
             // nano available
             if Command::new("sh").arg("-c")
