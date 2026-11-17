@@ -182,10 +182,14 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
     let source_dep = get_tmp();
     let source_grub = get_grub(&source_dep).unwrap();
     let target_dep = get_aux_tmp(source_dep.to_string(), secondary);
-    Command::new("cp").args(["-r", "--reflink=auto"])
+    let excode = Command::new("cp").args(["-r", "--reflink=auto"])
                       .arg(format!("/.snapshots/rootfs/snapshot-{}/boot/{}", target_dep,grub))
                       .arg(format!("{}", tmp_boot.path().to_str().unwrap()))
-                      .output()?;
+                      .status()?;
+    if !excode.success() {
+        return Err(Error::new(ErrorKind::Other,
+                              "Failed to copy the GRUB image to the boot partition."));
+    }
 
     // Update fstab for new deployment
     let fstab_file = format!("/.snapshots/rootfs/snapshot-{}/etc/fstab", target_dep);
