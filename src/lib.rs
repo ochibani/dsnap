@@ -430,11 +430,7 @@ fn check_profile(snapshot: &str) -> Result<(), Error> {
         }
         // Add package to profile if installed
         if !pkgs.contains(&pkg) {
-            pkgs.push(pkg.to_string());
-        }
-        for key in pkgs {
-            profconf.remove_key("profile-packages", &key);
-            profconf.set("profile-packages", &key, None);
+            profconf.set("profile-packages", &pkg, None);
         }
         profconf.pretty_write(&cfile, &write_options)?;
     }
