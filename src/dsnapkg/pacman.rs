@@ -760,10 +760,10 @@ pub fn uninstall_package_helper(snapshot: &str, pkgs: &Vec<String>, noconfirm: b
                 pkgs_list.push(pkg.to_string());
             }
         }
-        let pacman_args = if noconfirm {
-            ["pacman", "--noconfirm", "-Rns"]
+        let pacman_args: &[&str] = if noconfirm {
+            &["pacman", "--noconfirm", "-Rns"]
         } else {
-            ["pacman", "--confirm", "-Rns"]
+            &["pacman", "-Rns"]
         };
 
         if !is_system_locked() || !is_system_pkg(&profconf, pkg.to_string()) {
@@ -792,10 +792,10 @@ pub fn uninstall_package_helper(snapshot: &str, pkgs: &Vec<String>, noconfirm: b
 // Uninstall package(s) atomic-operation
 pub fn uninstall_package_helper_chroot(snapshot: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
     for pkg in pkgs {
-        let pacman_args = if noconfirm {
-            ["pacman", "--noconfirm", "-Rns"]
+        let pacman_args: &[&str] = if noconfirm {
+            &["pacman", "--noconfirm", "-Rns"]
         } else {
-            ["pacman", "--confirm", "-Rns"]
+            &["pacman", "-Rns"]
         };
 
         let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-chr{}", snapshot))
@@ -813,10 +813,10 @@ pub fn uninstall_package_helper_chroot(snapshot: &str, pkgs: &Vec<String>, nocon
 // Uninstall package(s) atomic-operation live snapshot
 pub fn uninstall_package_helper_live(tmp: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
     for pkg in pkgs {
-        let pacman_args = if noconfirm {
-            ["pacman", "--noconfirm", "-Rns"]
+        let pacman_args: &[&str] = if noconfirm {
+            &["pacman", "--noconfirm", "-Rns"]
         } else {
-            ["pacman", "--confirm", "-Rns"]
+            &["pacman", "-Rns"]
         };
 
         let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-{}", tmp))
@@ -836,20 +836,20 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
     // Prepare snapshot
     prepare(snapshot).unwrap();
     // Avoid invalid or corrupted package (PGP signature) error
-    let pacman_args = if noconfirm {
-        ["pacman", "--noconfirm", "-Syy", "archlinux-keyring"]
+    let pacman_args: &[&str] = if noconfirm {
+        &["pacman", "--noconfirm", "-Syy", "archlinux-keyring"]
     } else {
-        ["pacman", "--confirm", "-Syy", "archlinux-keyring"]
+        &["pacman", "-Syy", "archlinux-keyring"]
     };
 
     Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-chr{}", snapshot))
                           .args(pacman_args)
                           .status().unwrap();
     if !aur_check(snapshot) {
-        let pacman_args = if noconfirm {
-            ["pacman", "--noconfirm", "-Syyu"]
+        let pacman_args: &[&str] = if noconfirm {
+            &["pacman", "--noconfirm", "-Syyu"]
         } else {
-            ["pacman", "--confirm", "-Syyu"]
+            &["pacman", "-Syyu"]
         };
 
         let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-chr{}", snapshot))
@@ -880,20 +880,20 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
 // Live upgrade snapshot atomic-operation
 pub fn upgrade_helper_live(tmp: &str, noconfirm: bool) -> Result<(), Error> {
     // Avoid invalid or corrupted package (PGP signature) error
-    let pacman_args = if noconfirm {
-        ["pacman", "--noconfirm", "-Syy", "archlinux-keyring"]
+    let pacman_args: &[&str] = if noconfirm {
+        &["pacman", "--noconfirm", "-Syy", "archlinux-keyring"]
     } else {
-        ["pacman", "--confirm", "-Syy", "archlinux-keyring"]
+        &["pacman", "-Syy", "archlinux-keyring"]
     };
 
     Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-{}", tmp))
                           .args(pacman_args)
                           .status().unwrap();
     if !aur_check(tmp) {
-        let pacman_args = if noconfirm {
-            ["pacman", "--noconfirm", "-Syyu"]
+        let pacman_args: &[&str] = if noconfirm {
+            &["pacman", "--noconfirm", "-Syyu"]
         } else {
-            ["pacman", "--confirm", "-Syyu"]
+            &["pacman", "-Syyu"]
         };
 
         let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-{}", tmp))
@@ -907,7 +907,7 @@ pub fn upgrade_helper_live(tmp: &str, noconfirm: bool) -> Result<(), Error> {
         let paru_args = if noconfirm {
             "paru --noconfirm -Syyu"
         } else {
-            "paru --confirm -Syyu"
+            "paru -Syyu"
         };
 
         let excode = Command::new("sh")

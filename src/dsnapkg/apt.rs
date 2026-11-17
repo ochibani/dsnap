@@ -603,8 +603,7 @@ pub fn uninstall_package_helper_chroot(snapshot: &str, pkgs: &Vec<String>, nocon
         };
 
         let excode = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,uninstall_args))
-                                       .arg(format!("{}", pkg)).status()?;
+                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {} {}", snapshot,uninstall_args, pkg)).status()?;
 
         if !excode.success() {
             return Err(Error::new(ErrorKind::Other,
