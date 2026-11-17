@@ -6,8 +6,8 @@ Summary:        Immutable tree-shaped meta-distribution using snapshots
 License:        AGPL-3.0-only
 URL:            https://github.com/ochibani/dsnap
 Source0:        %{name}-%{version}.tar.gz
-Source1:        packaging/systemd/dsnap.service
-Source2:        packaging/systemd/dsnap.timer
+Source1:        packaging/systemd/dsnap-auto-upgrade.service
+Source2:        packaging/systemd/dsnap-auto-upgrade.timer
 
 BuildRequires:  gcc
 BuildRequires:  make
@@ -40,8 +40,8 @@ cargo build --release --locked
 
 %install
 install -Dm755 target/release/dsnap %{buildroot}%{_bindir}/dsnap
-install -Dm644 %{SOURCE1} %{buildroot}%{_unitdir}/dsnap.service
-install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/dsnap.timer
+install -Dm644 %{SOURCE1} %{buildroot}%{_unitdir}/dsnap-auto-upgrade.service
+install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/dsnap-auto-upgrade.timer
 install -Dm644 target/release/build/dsnap-*/out/dsnap.bash %{buildroot}%{_datadir}/bash-completion/completions/dsnap
 install -Dm644 target/release/build/dsnap-*/out/_dsnap %{buildroot}%{_datadir}/zsh/site-functions/_dsnap
 install -Dm644 target/release/build/dsnap-*/out/dsnap.fish %{buildroot}%{_datadir}/fish/vendor_completions.d/dsnap.fish
@@ -49,15 +49,15 @@ install -Dm644 target/release/build/dsnap-*/out/dsnap.fish %{buildroot}%{_datadi
 %files
 %license LICENSE
 %{_bindir}/dsnap
-%{_unitdir}/dsnap.service
-%{_unitdir}/dsnap.timer
+%{_unitdir}/dsnap-auto-upgrade.service
+%{_unitdir}/dsnap-auto-upgrade.timer
 %{_datadir}/bash-completion/completions/dsnap
 %{_datadir}/zsh/site-functions/_dsnap
 %{_datadir}/fish/vendor_completions.d/dsnap.fish
 
 %postun
 # The timer is shipped disabled by default; never enable it here.
-%systemd_postun dsnap.service dsnap.timer
+%systemd_postun dsnap-auto-upgrade.service dsnap-auto-upgrade.timer
 
 %changelog
 * Sun Nov 15 2026 Chibani <11yzyv86j@relay.firefox.com> - 0.1.0-1

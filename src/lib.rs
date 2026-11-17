@@ -5,7 +5,7 @@ mod tree;
 use chrono::Local;
 use configparser::ini::{Ini, WriteOptions};
 use ctrlc;
-use curl::easy::{Easy, HttpVersion, List, SslVersion};
+use curl::easy::{Easy, HttpVersion, List};
 use detect_distro as detect;
 use nix::mount::{mount, MntFlags, MsFlags, umount2};
 use partition_identity::{PartitionID, PartitionSource};
@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use tempfile::TempDir;
 use tree::*; // TODO Drop python-anytree
 use walkdir::WalkDir;
@@ -1010,18 +1011,12 @@ pub fn deploy(snapshot: &str, secondary: bool, reset: bool) -> Result<String, Er
                          .create(format!("/.snapshots/rootfs/snapshot-{}/etc", tmp))?;
         DirBuilder::new().recursive(true)
                          .create(format!("/.snapshots/rootfs/snapshot-{}/var", tmp))?;
-        Command::new("cp").args(["-r", "--reflink=auto"])
-                          .arg(format!("/.snapshots/boot/boot-{}/.", snapshot))
-                          .arg(format!("/.snapshots/rootfs/snapshot-{}/boot", tmp))
-                          .output()?;
-        Command::new("cp").args(["-r", "--reflink=auto"])
-                          .arg(format!("/.snapshots/etc/etc-{}/.", snapshot))
-                          .arg(format!("/.snapshots/rootfs/snapshot-{}/etc", tmp))
-                          .output()?;
-        Command::new("cp").args(["-r", "--reflink=auto"])
-                          .arg(format!("/.snapshots/var/var-{}/.", snapshot))
-                          .arg(format!("/.snapshots/rootfs/snapshot-{}/var", tmp))
-                          .output()?;
+                cp_reflink(format!("/.snapshots/boot/boot-{}/.", snapshot),
+                   format!("/.snapshots/rootfs/snapshot-{}/boot", tmp))?;
+                cp_reflink(format!("/.snapshots/etc/etc-{}/.", snapshot),
+                   format!("/.snapshots/rootfs/snapshot-{}/etc", tmp))?;
+                cp_reflink(format!("/.snapshots/var/var-{}/.", snapshot),
+                   format!("/.snapshots/rootfs/snapshot-{}/var", tmp))?;
 
         // If snapshot is mutable, modify '/' entry in fstab to read-write
         if check_mutability(snapshot) {
@@ -1150,18 +1145,12 @@ pub fn deploy_recovery(snapshot: &str) -> Result<(), Error> {
                      .create(format!("/.snapshots/rootfs/snapshot-{}/etc", tmp))?;
     DirBuilder::new().recursive(true)
                      .create(format!("/.snapshots/rootfs/snapshot-{}/var", tmp))?;
-    Command::new("cp").args(["-r", "--reflink=auto"])
-                      .arg("/.snapshots/boot/boot-0/.")
-                      .arg(format!("/.snapshots/rootfs/snapshot-{}/boot", tmp))
-                      .output()?;
-    Command::new("cp").args(["-r", "--reflink=auto"])
-                      .arg("/.snapshots/etc/etc-0/.")
-                      .arg(format!("/.snapshots/rootfs/snapshot-{}/etc", tmp))
-                      .output()?;
-    Command::new("cp").args(["-r", "--reflink=auto"])
-                      .arg("/.snapshots/var/var-0/.")
-                      .arg(format!("/.snapshots/rootfs/snapshot-{}/var", tmp))
-                      .output()?;
+        cp_reflink("/.snapshots/boot/boot-0/.",
+               format!("/.snapshots/rootfs/snapshot-{}/boot", tmp))?;
+        cp_reflink("/.snapshots/etc/etc-0/.",
+               format!("/.snapshots/rootfs/snapshot-{}/etc", tmp))?;
+        cp_reflink("/.snapshots/var/var-0/.",
+               format!("/.snapshots/rootfs/snapshot-{}/var", tmp))?;
 
     // Update fstab for new deployment
     let fstab_file = format!("/.snapshots/rootfs/snapshot-{}/etc/fstab", tmp);
@@ -1710,10 +1699,8 @@ pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir) -> Resul
         delete_subvolume(&format!("{}/{}", tmp_dir.path().to_str().unwrap(), export_snapshot))?;
 
         // Copy fstab
-        Command::new("cp").args(["-r", "--reflink=auto"])
-                          .arg("/.snapshots/rootfs/snapshot-0/etc/fstab")
-                          .arg(&format!("/.snapshots/rootfs/snapshot-chr{}/etc/fstab", snapshot))
-                          .status()?;
+                cp_reflink("/.snapshots/rootfs/snapshot-0/etc/fstab",
+                   &format!("/.snapshots/rootfs/snapshot-chr{}/etc/fstab", snapshot))?;
 
         // Mount chroot
         dsnap_mounts(&format!("{}", snapshot), "chr")?;
@@ -1885,10 +1872,8 @@ pub fn import_base(path: &str, tmp_dir: &TempDir) -> Result<String, Error> {
         clean_cache("0")?;
 
         // Copy fstab
-        Command::new("cp").args(["-r", "--reflink=auto"])
-                          .arg("/.snapshots/rootfs/snapshot-0/etc/fstab")
-                          .arg("/.snapshots/rootfs/snapshot-chr0/etc/fstab")
-                          .status()?;
+                cp_reflink("/.snapshots/rootfs/snapshot-0/etc/fstab",
+                   "/.snapshots/rootfs/snapshot-chr0/etc/fstab")?;
 
         // Mount chroot
         dsnap_mounts("0", "chr")?;
@@ -2456,15 +2441,11 @@ pub fn noninteractive_update(snapshot: &str) -> Result<(), Error> {
 pub fn post_transactions(snapshot: &str) -> Result<(), Error> {
     //File operations in snapshot-chr
     remove_dir_content(&format!("/.snapshots/boot/boot-chr{}", snapshot))?;
-    Command::new("cp").args(["-r", "--reflink=auto"])
-                      .arg(format!("/.snapshots/rootfs/snapshot-chr{}/boot/.", snapshot))
-                      .arg(format!("/.snapshots/boot/boot-chr{}", snapshot))
-                      .output()?;
+        cp_reflink(format!("/.snapshots/rootfs/snapshot-chr{}/boot/.", snapshot),
+               format!("/.snapshots/boot/boot-chr{}", snapshot))?;
     remove_dir_content(&format!("/.snapshots/etc/etc-chr{}", snapshot))?;
-    Command::new("cp").args(["-r", "--reflink=auto"])
-                      .arg(format!("/.snapshots/rootfs/snapshot-chr{}/etc/.", snapshot))
-                      .arg(format!("/.snapshots/etc/etc-chr{}", snapshot))
-                      .output()?;
+        cp_reflink(format!("/.snapshots/rootfs/snapshot-chr{}/etc/.", snapshot),
+               format!("/.snapshots/etc/etc-chr{}", snapshot))?;
     // Keep package manager's cache after installing packages
     // This prevents unnecessary downloads for each snapshot when upgrading multiple snapshots
     cache_copy(snapshot, false)?;
@@ -2473,10 +2454,8 @@ pub fn post_transactions(snapshot: &str) -> Result<(), Error> {
         clean_cache(snapshot)?;
     }
     remove_dir_content(&format!("/.snapshots/var/var-chr{}", snapshot))?;
-    Command::new("cp").args(["-r", "--reflink=auto"])
-                      .arg(format!("/.snapshots/rootfs/snapshot-chr{}/var/.", snapshot))
-                      .arg(format!("/.snapshots/var/var-chr{}", snapshot))
-                      .output()?;
+        cp_reflink(format!("/.snapshots/rootfs/snapshot-chr{}/var/.", snapshot),
+               format!("/.snapshots/var/var-chr{}", snapshot))?;
 
     // Delete old snapshot
     let path_vec = vec!["boot","etc", "var"];
@@ -2579,20 +2558,14 @@ pub fn post_transactions(snapshot: &str) -> Result<(), Error> {
 pub fn posttrans(snapshot: &str) -> Result<(), Error> {
     delete_subvolume(&format!("/.snapshots/rootfs/snapshot-{}", snapshot))?;
     remove_dir_content(&format!("/.snapshots/etc/etc-chr{}", snapshot))?;
-    Command::new("cp").args(["-r", "--reflink=auto"])
-                      .arg(format!("/.snapshots/rootfs/snapshot-chr{}/etc/*", snapshot))
-                      .arg(format!("/.snapshots/etc/etc-chr{}", snapshot))
-                      .output()?;
+        cp_reflink(format!("/.snapshots/rootfs/snapshot-chr{}/etc/.", snapshot),
+               format!("/.snapshots/etc/etc-chr{}", snapshot))?;
     remove_dir_content(&format!("/.snapshots/var/var-chr{}", snapshot))?;
-    Command::new("cp").args(["-r", "--reflink=auto"])
-                      .arg(format!("/.snapshots/rootfs/snapshot-chr{}/var/*", snapshot))
-                      .arg(format!("/.snapshots/var/var-chr{}", snapshot))
-                      .output()?;
+        cp_reflink(format!("/.snapshots/rootfs/snapshot-chr{}/var/.", snapshot),
+               format!("/.snapshots/var/var-chr{}", snapshot))?;
     remove_dir_content(&format!("/.snapshots/boot/boot-chr{}",  snapshot))?;
-    Command::new("cp").args(["-r", "--reflink=auto"])
-                      .arg(format!("/.snapshots/rootfs/snapshot-chr{}/boot/*", snapshot))
-                      .arg(format!("/.snapshots/boot/boot-chr{}", snapshot))
-                      .output()?;
+        cp_reflink(format!("/.snapshots/rootfs/snapshot-chr{}/boot/.", snapshot),
+               format!("/.snapshots/boot/boot-chr{}", snapshot))?;
     delete_subvolume(&format!("/.snapshots/etc/etc-{}", snapshot))?;
     delete_subvolume(&format!("/.snapshots/var/var-{}", snapshot))?;
     delete_subvolume(&format!("/.snapshots/boot/boot-{}", snapshot))?;
@@ -2701,18 +2674,12 @@ pub fn prepare(snapshot: &str) -> Result<(), Error> {
     create_snapshot(&format!("/.snapshots/var/var-{}", snapshot),
                     &format!("/.snapshots/var/var-chr{}", snapshot),
                     false)?;
-    Command::new("cp").args(["-r", "--reflink=auto"])
-                      .arg(format!("/.snapshots/boot/boot-chr{}/.", snapshot))
-                      .arg(format!("{}/boot", snapshot_chr))
-                      .output()?;
-    Command::new("cp").args(["-r", "--reflink=auto"])
-                      .arg(format!("/.snapshots/etc/etc-chr{}/.", snapshot))
-                      .arg(format!("{}/etc", snapshot_chr))
-                      .output()?;
-    Command::new("cp").args(["-r", "--reflink=auto"])
-                      .arg(format!("/.snapshots/var/var-chr{}/.", snapshot))
-                      .arg(format!("{}/var", snapshot_chr))
-                      .output()?;
+        cp_reflink(format!("/.snapshots/boot/boot-chr{}/.", snapshot),
+               format!("{}/boot", snapshot_chr))?;
+        cp_reflink(format!("/.snapshots/etc/etc-chr{}/.", snapshot),
+               format!("{}/etc", snapshot_chr))?;
+        cp_reflink(format!("/.snapshots/var/var-chr{}/.", snapshot),
+               format!("{}/var", snapshot_chr))?;
 
     // Copy dsnap related configurations
     if Path::new("/etc/systemd").try_exists()? {
@@ -2985,20 +2952,14 @@ pub fn rebuild_prep(snapshot: &str) -> Result<(), Error> {
                     &format!("/.snapshots/var/var-chr{}", snapshot),
                     false)?;
     remove_dir_content(&format!("/.snapshots/boot/boot-chr{}", snapshot))?;
-    Command::new("cp").args(["-r", "--reflink=auto"])
-                      .arg(format!("{}/boot/.", snapshot_chr))
-                      .arg(format!("/.snapshots/boot/boot-chr{}", snapshot))
-                      .output()?;
+        cp_reflink(format!("{}/boot/.", snapshot_chr),
+               format!("/.snapshots/boot/boot-chr{}", snapshot))?;
     remove_dir_content(&format!("/.snapshots/etc/etc-chr{}", snapshot))?;
-    Command::new("cp").args(["-r", "--reflink=auto"])
-                      .arg(format!("{}/etc/.", snapshot_chr))
-                      .arg(format!("/.snapshots/etc/etc-chr{}", snapshot))
-                      .output()?;
+        cp_reflink(format!("{}/etc/.", snapshot_chr),
+               format!("/.snapshots/etc/etc-chr{}", snapshot))?;
     remove_dir_content(&format!("/.snapshots/var/var-chr{}", snapshot))?;
-    Command::new("cp").args(["-r", "--reflink=auto"])
-                      .arg(format!("{}/var/.", snapshot_chr))
-                      .arg(format!("/.snapshots/var/var-chr{}", snapshot))
-                      .output()?;
+        cp_reflink(format!("{}/var/.", snapshot_chr),
+               format!("/.snapshots/var/var-chr{}", snapshot))?;
 
     Ok(())
 }
@@ -3054,6 +3015,25 @@ pub fn remove_dir_content(dir_path: &str) -> Result<(), Error> {
             // If it's a directory, recursively remove its contents using the remove_dir_all function
             std::fs::remove_dir_all(path)?;
         }
+    }
+    Ok(())
+}
+
+// Copy recursively, using reflinks when supported, and make sure the copy
+// actually succeeded: cp fails partially, so only its exit status tells
+// whether every file made it to the destination.
+fn cp_reflink(src: impl AsRef<str>, dst: impl AsRef<str>) -> Result<(), Error> {
+    let src = src.as_ref();
+    let dst = dst.as_ref();
+    let output = Command::new("cp").args(["-r", "--reflink=auto"])
+                                   .arg(src)
+                                   .arg(dst)
+                                   .output()?;
+    if !output.status.success() {
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Failed to copy {} to {}: {}",
+                                      src, dst,
+                                      String::from_utf8_lossy(&output.stderr).trim())));
     }
     Ok(())
 }
@@ -3408,42 +3388,76 @@ pub fn switch_to_windows() -> std::process::ExitStatus {
                       .arg(format!("'Windows' -l '\\EFI\\BOOT\\BOOTX64.efi'")).status().unwrap()
 }
 
-// Sync time
-pub fn sync_time() -> Result<(), Error> {
-    // curl --tlsv1.3 --proto =https -I https://google.com
+// Fetch the response headers of a HEAD request, optionally skipping TLS
+// certificate verification (needed when the clock is too far off for the
+// certificate to validate).
+fn fetch_date_headers(verify_tls: bool) -> Result<String, Error> {
+    // curl --proto =https -I https://google.com
     let mut easy = Easy::new();
     easy.url("https://google.com")?;
 
-    easy.ssl_version(SslVersion::Tlsv13)?;
     easy.http_version(HttpVersion::V2)?;
+    // Let curl negotiate TLS 1.2/1.3 instead of forcing 1.3 only
+    easy.nobody(true)?;
+    easy.connect_timeout(Duration::from_secs(10))?;
+    easy.timeout(Duration::from_secs(20))?;
+
+    if !verify_tls {
+        easy.ssl_verify_peer(false)?;
+        easy.ssl_verify_host(false)?;
+    }
 
     let mut headers = List::new();
     headers.append("Accept: */*")?;
     easy.http_headers(headers)?;
-    easy.show_header(true)?;
 
     let mut response_headers = Vec::new();
     {
         let mut transfer = easy.transfer();
-        transfer.write_function(|data| {
-            response_headers.extend_from_slice(data);
-            Ok(data.len())
-        }).unwrap();
+        // Collect headers only, the body is not downloaded (nobody = true)
+        transfer.header_function(|header| {
+            response_headers.extend_from_slice(header);
+            true
+        })?;
         transfer.perform()?;
     }
 
-    let response_headers_str = String::from_utf8_lossy(&response_headers);
+    Ok(String::from_utf8_lossy(&response_headers).into_owned())
+}
+
+// Sync time
+pub fn sync_time() -> Result<(), Error> {
+    // Normally verify the certificate, but the clock is what we are trying to
+    // fix: if it is wrong enough the certificate check fails, so retry
+    // without verification instead of failing to sync at all.
+    let response_headers_str = match fetch_date_headers(true) {
+        Ok(headers) => headers,
+        Err(err) => {
+            eprintln!("Verified TLS request failed ({}), retrying without certificate verification.", err);
+            fetch_date_headers(false)?
+        }
+    };
 
     let date_header = response_headers_str
         .lines()
-        .find(|line| line.starts_with("date:"))
-        .expect("Date header not found.");
+        .find(|line| line.to_lowercase().starts_with("date:"))
+        .ok_or_else(|| Error::new(ErrorKind::Other, "Date header not found."))?;
 
+    // HTTP date headers look like "date: Tue, 17 Nov 2026 13:07:43 GMT"
+    // and are always in GMT (RFC 7231), tokens 2..7 include the timezone
     let date_str: Vec<&str> = date_header.split_whitespace().collect();
-    let date = &date_str[2..6].join(" ");
+    if date_str.len() < 7 {
+        return Err(Error::new(ErrorKind::Other, "Malformed date header."));
+    }
+    let date = &date_str[2..7].join(" ");
 
-    // Set time
-    Command::new("date").arg("-s").arg(format!("\"({})Z\"", date)).output()?;
+    // Set time and make sure it actually worked
+    let output = Command::new("date").args(["-u", "-s"]).arg(date).output()?;
+    if !output.status.success() {
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Failed to set time: {}",
+                                      String::from_utf8_lossy(&output.stderr).trim())));
+    }
     Ok(())
 }
 
