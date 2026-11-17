@@ -737,7 +737,12 @@ pub fn tree_sync_helper(s_f: &str, s_t: &str, chr: &str) -> Result<(), Error>  {
                       .arg(format!("/.snapshots/rootfs/snapshot-{}/var/cache/pacman/pkg/.", s_f))
                       .arg(format!("/.snapshots/rootfs/snapshot-{}{}/var/cache/pacman/pkg", chr,s_t))
                       .output()?;
-    check_profile(s_t)?;
+    // Profile reconciliation only applies to the chroot flow; the live
+    // post-sync targets the deployed slot, where neither profile path of
+    // check_profile exists (snapshot-chr{tmp} is never created there)
+    if !chr.is_empty() {
+        check_profile(s_t)?;
+    }
     Ok(())
 }
 
