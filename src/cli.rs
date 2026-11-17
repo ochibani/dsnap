@@ -517,7 +517,7 @@ pub fn cli() -> Command {
                          .short('l')
                          .action(ArgAction::SetTrue)
                          .required(false)
-                         .help("disable live sync"),),)
+                         .help("enable live sync for the currently booted snapshot"),),)
         // Tree install
         .subcommand(Command::new("tinstall")
                     .alias("tree-in")
