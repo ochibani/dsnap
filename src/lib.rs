@@ -3052,10 +3052,28 @@ pub fn remove_dir_content(dir_path: &str) -> Result<(), Error> {
 // Copy recursively, using reflinks when supported, and make sure the copy
 // actually succeeded: cp fails partially, so only its exit status tells
 // whether every file made it to the destination.
-fn cp_reflink(src: impl AsRef<str>, dst: impl AsRef<str>) -> Result<(), Error> {
+pub fn cp_reflink(src: impl AsRef<str>, dst: impl AsRef<str>) -> Result<(), Error> {
     let src = src.as_ref();
     let dst = dst.as_ref();
     let output = Command::new("cp").args(["-r", "--reflink=auto"])
+                                   .arg(src)
+                                   .arg(dst)
+                                   .output()?;
+    if !output.status.success() {
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Failed to copy {} to {}: {}",
+                                      src, dst,
+                                      String::from_utf8_lossy(&output.stderr).trim())));
+    }
+    Ok(())
+}
+
+// Copy recursively without clobbering existing files, using reflinks when
+// supported, and make sure the copy actually succeeded.
+pub fn cp_reflink_no_clobber(src: impl AsRef<str>, dst: impl AsRef<str>) -> Result<(), Error> {
+    let src = src.as_ref();
+    let dst = dst.as_ref();
+    let output = Command::new("cp").args(["-n", "-r", "--reflink=auto"])
                                    .arg(src)
                                    .arg(dst)
                                    .output()?;

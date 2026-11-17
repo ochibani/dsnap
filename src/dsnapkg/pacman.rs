@@ -1,4 +1,4 @@
-use crate::{check_profile, check_mutability, chr_delete, chroot_exec, get_current_snapshot, get_tmp,
+use crate::{cp_reflink, cp_reflink_no_clobber,check_profile, check_mutability, chr_delete, chroot_exec, get_current_snapshot, get_tmp,
             grub, immutability_disable, immutability_enable, is_system_pkg, is_system_locked,
             post_transactions, prepare, remove_dir_content, snapshot_config_get, sync_time};
 
@@ -135,9 +135,8 @@ pub fn bootstrap(snapshot: &str) -> Result<(), Error> {
 
     // Copy pacman database from tmp
     remove_dir_content(&format!("/.snapshots/rootfs/snapshot-chr{}/var/lib/pacman", snapshot))?;
-    Command::new("cp").args(["-r", "--reflink=auto"])
-                      .arg(format!("{}/.", tmp_db.path().to_str().unwrap()))
-                      .arg(format!("/.snapshots/rootfs/snapshot-chr{}/var/lib/pacman", snapshot)).status()?;
+    cp_reflink(format!("{}/.", tmp_db.path().to_str().unwrap()),
+               format!("/.snapshots/rootfs/snapshot-chr{}/var/lib/pacman", snapshot))?;
     Ok(())
 }
 
@@ -145,15 +144,11 @@ pub fn bootstrap(snapshot: &str) -> Result<(), Error> {
 pub fn cache_copy(snapshot: &str, prepare: bool) -> Result<(), Error> {
     let tmp = get_tmp();
     if prepare {
-        Command::new("cp").args(["-n", "-r", "--reflink=auto"])
-                          .arg(format!("/.snapshots/rootfs/snapshot-{}/var/cache/pacman/pkg/.", tmp))
-                          .arg(format!("/.snapshots/rootfs/snapshot-chr{}/var/cache/pacman/pkg", snapshot))
-                          .output().unwrap();
+        cp_reflink_no_clobber(format!("/.snapshots/rootfs/snapshot-{}/var/cache/pacman/pkg/.", tmp),
+                   format!("/.snapshots/rootfs/snapshot-chr{}/var/cache/pacman/pkg", snapshot))?;
     } else {
-        Command::new("cp").args(["-n", "-r", "--reflink=auto"])
-                          .arg(format!("/.snapshots/rootfs/snapshot-chr{}/var/cache/pacman/pkg/.", snapshot))
-                          .arg(format!("/.snapshots/rootfs/snapshot-{}/var/cache/pacman/pkg", tmp))
-                          .output().unwrap();
+        cp_reflink_no_clobber(format!("/.snapshots/rootfs/snapshot-chr{}/var/cache/pacman/pkg/.", snapshot),
+                   format!("/.snapshots/rootfs/snapshot-{}/var/cache/pacman/pkg", tmp))?;
     }
     Ok(())
 }
@@ -609,50 +604,37 @@ pub fn system_config(snapshot: &str, profconf: &Ini) -> Result<(), Error> {
 
     for file in files {
         if Path::new(&format!("/.snapshots/rootfs/snapshot-{}{}", snapshot,file)).is_file() {
-            Command::new("cp").args(["-r", "--reflink=auto"])
-                              .arg(format!("/.snapshots/rootfs/snapshot-{}{}", snapshot,file))
-                              .arg(format!("/.snapshots/rootfs/snapshot-chr{}{}", snapshot,file)).status()?;
+            cp_reflink(format!("/.snapshots/rootfs/snapshot-{}{}", snapshot,file),
+                       format!("/.snapshots/rootfs/snapshot-chr{}{}", snapshot,file))?;
         }
     }
 
     // Copy pacman.d directory
     remove_dir_content(&format!("/.snapshots/rootfs/snapshot-chr{}/etc/pacman.d", snapshot))?;
-    Command::new("cp").args(["-n", "-r", "--reflink=auto"])
-                      .arg(format!("/.snapshots/rootfs/snapshot-{}/etc/pacman.d/.", snapshot))
-                      .arg(format!("/.snapshots/rootfs/snapshot-chr{}/etc/pacman.d/", snapshot))
-                      .output()?;
+    cp_reflink_no_clobber(format!("/.snapshots/rootfs/snapshot-{}/etc/pacman.d/.", snapshot),
+               format!("/.snapshots/rootfs/snapshot-chr{}/etc/pacman.d/", snapshot))?;
 
     // Copy dsnap configuration
-    Command::new("cp").args(["-n", "-r", "--reflink=auto"])
-                      .arg(format!("/.snapshots/rootfs/snapshot-{}/etc/dsnap", snapshot))
-                      .arg(format!("/.snapshots/rootfs/snapshot-chr{}/etc/dsnap", snapshot))
-                      .output()?;
+    cp_reflink_no_clobber(format!("/.snapshots/rootfs/snapshot-{}/etc/dsnap", snapshot),
+               format!("/.snapshots/rootfs/snapshot-chr{}/etc/dsnap", snapshot))?;
 
     // Copy grub configuration
     #[cfg(feature = "grub")]
     let grub = grub::get_grub(snapshot).unwrap();
     #[cfg(feature = "grub")]
-    Command::new("cp").args(["-n", "-r", "--reflink=auto"])
-                      .arg(format!("/.snapshots/rootfs/snapshot-{}/boot/{}/.", snapshot,grub))
-                      .arg(format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}", snapshot,grub))
-                      .output()?;
+    cp_reflink_no_clobber(format!("/.snapshots/rootfs/snapshot-{}/boot/{}/.", snapshot,grub),
+               format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}", snapshot,grub))?;
     #[cfg(feature = "grub")]
-    Command::new("cp").args(["-n", "-r", "--reflink=auto"])
-                      .arg(format!("/.snapshots/rootfs/snapshot-{}/etc/default/grub", snapshot))
-                      .arg(format!("/.snapshots/rootfs/snapshot-chr{}/etc/default/grub", snapshot))
-                      .output()?;
+    cp_reflink_no_clobber(format!("/.snapshots/rootfs/snapshot-{}/etc/default/grub", snapshot),
+               format!("/.snapshots/rootfs/snapshot-chr{}/etc/default/grub", snapshot))?;
     #[cfg(feature = "grub")]
-    Command::new("cp").args(["-n", "-r", "--reflink=auto"])
-                      .arg(format!("/.snapshots/rootfs/snapshot-{}/etc/grub.d", snapshot))
-                      .arg(format!("/.snapshots/rootfs/snapshot-chr{}/etc/grub.d", snapshot))
-                      .output()?;
+    cp_reflink_no_clobber(format!("/.snapshots/rootfs/snapshot-{}/etc/grub.d", snapshot),
+               format!("/.snapshots/rootfs/snapshot-chr{}/etc/grub.d", snapshot))?;
 
     // Copy /usr/local
     remove_dir_content(&format!("/.snapshots/rootfs/snapshot-chr{}/usr/local", snapshot))?;
-    Command::new("cp").args(["-n", "-r", "--reflink=auto"])
-                      .arg(format!("/.snapshots/rootfs/snapshot-{}/usr/local/.", snapshot))
-                      .arg(format!("/.snapshots/rootfs/snapshot-chr{}/usr/local/", snapshot))
-                      .output()?;
+    cp_reflink_no_clobber(format!("/.snapshots/rootfs/snapshot-{}/usr/local/.", snapshot),
+               format!("/.snapshots/rootfs/snapshot-chr{}/usr/local/", snapshot))?;
 
     // Install system packages
     if profconf.sections().contains(&"system-packages".to_string()) {
@@ -717,9 +699,8 @@ pub fn system_config(snapshot: &str, profconf: &Ini) -> Result<(), Error> {
         }
         if !system_conf.is_empty() {
             for path in system_conf {
-                Command::new("cp").args(["-r", "--reflink=auto"])
-                                  .arg(format!("/.snapshots/rootfs/snapshot-{}{}", snapshot,path))
-                                  .arg(format!("/.snapshots/rootfs/snapshot-chr{}{}", snapshot,path)).status()?;
+                cp_reflink(format!("/.snapshots/rootfs/snapshot-{}{}", snapshot,path),
+                           format!("/.snapshots/rootfs/snapshot-chr{}{}", snapshot,path))?;
             }
         }
     }
@@ -729,14 +710,10 @@ pub fn system_config(snapshot: &str, profconf: &Ini) -> Result<(), Error> {
 
 // Sync tree helper function
 pub fn tree_sync_helper(s_f: &str, s_t: &str, chr: &str) -> Result<(), Error>  {
-    Command::new("cp").args(["-r", "--reflink=auto"])
-                      .arg(format!("/.snapshots/etc/etc-{}/.", s_f))
-                      .arg(format!("/.snapshots/rootfs/snapshot-{}{}/etc", chr,s_t))
-                      .output()?;
-    Command::new("cp").args(["-n", "-r", "--reflink=auto"])
-                      .arg(format!("/.snapshots/rootfs/snapshot-{}/var/cache/pacman/pkg/.", s_f))
-                      .arg(format!("/.snapshots/rootfs/snapshot-{}{}/var/cache/pacman/pkg", chr,s_t))
-                      .output()?;
+    cp_reflink(format!("/.snapshots/etc/etc-{}/.", s_f),
+               format!("/.snapshots/rootfs/snapshot-{}{}/etc", chr,s_t))?;
+    cp_reflink_no_clobber(format!("/.snapshots/rootfs/snapshot-{}/var/cache/pacman/pkg/.", s_f),
+               format!("/.snapshots/rootfs/snapshot-{}{}/var/cache/pacman/pkg", chr,s_t))?;
     // Profile reconciliation only applies to the chroot flow; the live
     // post-sync targets the deployed slot, where neither profile path of
     // check_profile exists (snapshot-chr{tmp} is never created there)
