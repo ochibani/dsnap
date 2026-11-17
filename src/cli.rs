@@ -603,7 +603,7 @@ pub fn cli() -> Command {
                          .short('p')
                          .num_args(1..)
                          .value_parser(clap::value_parser!(String))
-                         .required_unless_present("PROFILE")
+                         .required_unless_present_any(["PROFILE", "USER_PROFILE"])
                          .conflicts_with_all(["PROFILE", "USER_PROFILE"])
                          .help("package(s) to be uninstalled"),)
                     .arg(Arg::new("PROFILE")
