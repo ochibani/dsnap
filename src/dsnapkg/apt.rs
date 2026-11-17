@@ -294,19 +294,48 @@ pub fn lockpkg(snapshot:&str, profconf: &Ini) -> Result<(), Error> {
         }
     }
 
-    let mut lockpkg = String::new();
-    if !system_pkgs.is_empty() {
-        for pkg in system_pkgs {
-            let rule = format!("Package: {}\nPin: release *\nPin-Priority: 1001\n\n", pkg);
-            lockpkg.push_str(&rule);
+    // Drop the ineffective pin file left by previous versions:
+    // Pin-Priority only steers version selection, apt-get remove and
+    // autoremove still remove a pinned package
+    let old_rule_file = format!("/.snapshots/rootfs/snapshot-chr{}/etc/apt/preferences.d/dsnap_system_packages", snapshot);
+    if Path::new(&old_rule_file).try_exists()? {
+        std::fs::remove_file(&old_rule_file)?;
+    }
+
+    // Release holds that are no longer in system-packages so the hold list
+    // mirrors the profile exactly
+    let held = Command::new("sh").arg("-c")
+                                 .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} apt-mark showhold", snapshot))
+                                 .output()?;
+    if !held.status.success() {
+        return Err(Error::new(ErrorKind::Other, "Failed to list held packages."));
+    }
+    for pkg in String::from_utf8_lossy(&held.stdout).lines() {
+        let pkg = pkg.trim();
+        if pkg.is_empty() || system_pkgs.iter().any(|s| s == pkg) {
+            continue;
+        }
+        let excode = Command::new("sh").arg("-c")
+                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} apt-mark unhold {}", snapshot, pkg))
+                                       .status()?;
+        if !excode.success() {
+            return Err(Error::new(ErrorKind::Other,
+                                  format!("Failed to unhold package {}.", pkg)));
         }
     }
-    let mut rule_file = OpenOptions::new().truncate(true)
-                                          .create(true)
-                                          .read(true)
-                                          .write(true)
-                                          .open(format!("/.snapshots/rootfs/snapshot-chr{}/etc/apt/preferences.d/dsnap_system_packages", snapshot))?;
-    rule_file.write_all(lockpkg.as_bytes())?;
+
+    // apt-mark hold is apt's native equivalent of pacman's HoldPkg and
+    // dnf's protected.d: it prevents the package from being automatically
+    // installed, upgraded or removed
+    if !system_pkgs.is_empty() {
+        let pkgs = system_pkgs.join(" ");
+        let excode = Command::new("sh").arg("-c")
+                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} apt-mark hold {}", snapshot, pkgs))
+                                       .status()?;
+        if !excode.success() {
+            return Err(Error::new(ErrorKind::Other, "Failed to hold system packages."));
+        }
+    }
     Ok(())
 }
 
