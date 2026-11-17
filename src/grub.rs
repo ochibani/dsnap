@@ -107,14 +107,14 @@ pub fn switch_recovery_tmp(snapshot: &str, target_snapshot: &str) -> Result<(), 
     for line in reader.lines() {
         let line = line?;
         if line.contains("menuentry 'Recovery Snapshot'") {
+            // Old recovery entry found: skip its title line and body
             recovery_mode = true;
         } else if recovery_mode {
             if line.contains("}") {
-                ngrub_cfg.retain(|s| s.to_string() != line);
+                // Closing brace of the old recovery entry: stop skipping
                 break;
-            } else {
-                ngrub_cfg.retain(|s| s.to_string() != line);
             }
+            // Skip the old recovery entry body lines
         } else {
             ngrub_cfg.push_str(&format!("\n{}",&line));
         }
