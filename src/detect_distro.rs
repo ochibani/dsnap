@@ -43,20 +43,32 @@ pub fn distro_id() -> String {
 
     // If both checks fail, loop through all files in /etc/ and check for -release files
     if distro_id.is_empty() {
-        for entry in read_dir("/etc").unwrap() {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                if path.is_file() && path.to_str().unwrap().ends_with("-release") {
-                    distro_id = path.file_stem().unwrap()
-                                                .to_str().unwrap()
-                                                         .to_lowercase().to_owned().to_string()
-                                                                                   .split('-')
-                                                                                   .nth(0)
-                                                                                   .unwrap()
-                                                                                   .to_string();
-                    break;
+        // Sort entries for deterministic detection and exclude the
+        // os-release/lsb-release files already checked above, otherwise
+        // they would be detected as distro "os"/"lsb"
+        let mut release_files: Vec<String> = Vec::new();
+        if let Ok(entries) = read_dir("/etc") {
+            for entry in entries.flatten() {
+                if let Some(path) = entry.path().to_str() {
+                    if entry.path().is_file()
+                        && path.ends_with("-release")
+                        && !path.ends_with("/os-release")
+                        && !path.ends_with("/lsb-release") {
+                        release_files.push(path.to_string());
+                    }
                 }
             }
+            release_files.sort();
+        }
+        if let Some(path) = release_files.first() {
+            let stem = path.rsplit('/').next().unwrap_or("");
+            distro_id = stem.strip_suffix("-release")
+                            .unwrap_or(stem)
+                            .to_lowercase()
+                            .split('-')
+                            .next()
+                            .unwrap_or("")
+                            .to_string();
         }
     }
     distro_id
@@ -89,21 +101,33 @@ pub fn distro_name(snapshot: &str) -> String {
 
     // If both checks fail, loop through all files in /etc/ and check for -release files
     if distro_name.is_empty() {
-        for entry in read_dir(format!("/.snapshots/rootfs/snapshot-chr{}/etc", snapshot)).unwrap() {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                if path.is_file() && path.to_str().unwrap().ends_with("-release") {
-                    let distro_name_from_path = path.file_stem().unwrap()
-                                                                .to_str().unwrap()
-                                                                         .to_lowercase().to_owned().to_string()
-                                                                                                   .split('-')
-                                                                                                   .nth(0)
-                                                                                                   .unwrap()
-                                                                                                   .to_string();
-                    distro_name = capitalize(&distro_name_from_path);
-                    break;
+        // Sort entries for deterministic detection and exclude the
+        // os-release/lsb-release files already checked above, otherwise
+        // they would be detected as distro "Os"/"Lsb"
+        let mut release_files: Vec<String> = Vec::new();
+        if let Ok(entries) = read_dir(format!("/.snapshots/rootfs/snapshot-chr{}/etc", snapshot)) {
+            for entry in entries.flatten() {
+                if let Some(path) = entry.path().to_str() {
+                    if entry.path().is_file()
+                        && path.ends_with("-release")
+                        && !path.ends_with("/os-release")
+                        && !path.ends_with("/lsb-release") {
+                        release_files.push(path.to_string());
+                    }
                 }
             }
+            release_files.sort();
+        }
+        if let Some(path) = release_files.first() {
+            let stem = path.rsplit('/').next().unwrap_or("");
+            let distro_name_from_path = stem.strip_suffix("-release")
+                                            .unwrap_or(stem)
+                                            .to_lowercase()
+                                            .split('-')
+                                            .next()
+                                            .unwrap_or("")
+                                            .to_string();
+            distro_name = capitalize(&distro_name_from_path);
         }
     }
     distro_name
