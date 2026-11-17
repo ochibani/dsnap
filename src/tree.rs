@@ -145,15 +145,12 @@ fn import_tree_file(treename: &str) -> Result<PyObject, PyErr> {
 
 // Return order to recurse tree
 pub fn recurse_tree(tree: &PyObject, cid: &str) -> Vec<String> {
-    let mut order: Vec<String> = Vec::new();
-    for child in return_children(&tree, cid).unwrap() {
-        let par = get_parent(&tree, &child).unwrap().to_string();
-        if child != cid {
-            order.push(par);
-            order.push(child);
-        }
-    }
-    order
+    // return_children already yields every descendant in pre-order
+    // (parents before children); looking up each node's parent again and
+    // pushing it made every intermediate node appear once per child,
+    // so each snapshot between the tree root and a leaf was processed
+    // repeatedly (once for itself, once as its child's parent)
+    return_children(&tree, cid).unwrap()
 }
 
 // Remove node from tree
