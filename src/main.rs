@@ -431,7 +431,11 @@ fn main() {
             Some(("efi-update", _matches)) => {
                 // Run efi_boot_order
                 if is_efi() {
-                    efi_boot_order().unwrap();
+                    let run = efi_boot_order();
+                    match run {
+                        Ok(_) => println!("EFI boot order has been updated."),
+                        Err(e) => eprintln!("{}", e),
+                    }
                 } else {
                    eprintln!("efi-update command is not supported.");
                 }
@@ -672,7 +676,11 @@ fn main() {
                 let secondary = install_matches.get_flag("secondary");
 
                 // Run install_triage
-                install_triage(&snapshot, live, pkgs, &profile, force, &user_profile, noconfirm, secondary).unwrap();
+                let run = install_triage(&snapshot, live, pkgs, &profile, force, &user_profile, noconfirm, secondary);
+                match run {
+                    Ok(_) => (),
+                    Err(e) => eprintln!("{}", e),
+                }
             }
             // Package list
             Some(("list", list_matches)) => {
@@ -782,7 +790,11 @@ fn main() {
                 };
 
                 // Run refresh
-                refresh(&snapshot).unwrap();
+                let run = refresh(&snapshot);
+                match run {
+                    Ok(_) => (),
+                    Err(e) => eprintln!("{}", e),
+                }
             }
             // Reset
             Some(("reset", _matches)) => {
@@ -908,7 +920,11 @@ fn main() {
             // tmp (clear tmp)
             Some(("tmp", _matches)) => {
                 // Run temp_snapshots_clear
-                temp_snapshots_clear().unwrap();
+                let run = temp_snapshots_clear();
+                match run {
+                    Ok(_) => (),
+                    Err(e) => eprintln!("{}", e),
+                }
             }
             // Tree
             Some(("tree", _matches)) => {
@@ -1051,7 +1067,11 @@ fn main() {
                 let noconfirm = uninstall_matches.get_flag("noconfirm");
 
                 // Run uninstall_triage
-                uninstall_triage(&snapshot, live, pkgs, &profile, &user_profile, noconfirm).unwrap();
+                let run = uninstall_triage(&snapshot, live, pkgs, &profile, &user_profile, noconfirm);
+                match run {
+                    Ok(_) => (),
+                    Err(e) => eprintln!("{}", e),
+                }
             }
             // Unlock a snapshot
             Some(("unlock", unlock_matches)) => {
