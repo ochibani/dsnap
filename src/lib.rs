@@ -2579,8 +2579,41 @@ pub fn posttrans(snapshot: &str) -> Result<(), Error> {
     create_snapshot(&format!("/.snapshots/boot/boot-chr{}", snapshot),
                     &format!("/.snapshots/boot/boot-{}", snapshot),
                     true)?;
+    // Tear down every mount before deleting the chroot. delete_subvolume
+    // fails with EBUSY while anything is still mounted, and chr_delete's
+    // fallback would then walk the topmost mount, which is the recursive
+    // bind of the live root filesystem hollow() placed here, deleting the
+    // running system's files through it.
+    // Umount the nested chroot view inside the live-root bind
     umount2(Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/.snapshots/rootfs/snapshot-chr{}/", snapshot,snapshot)),
-            MntFlags::MNT_DETACH).unwrap();
+            MntFlags::MNT_DETACH)?;
+    // Umount the live root bind hollow() put on top of the chroot
+    umount2(Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot)),
+            MntFlags::MNT_DETACH)?;
+    // Unwind the chroot mounts prepare() created (resolv, sys, proc, ..., self-bind)
+    dsnap_umounts(snapshot, "chr")?;
+    // Umount the mutable_dirs binds prepare() mounted into the chroot;
+    // dsnap_umounts() does not know about them
+    let options = snapshot_config_get(snapshot);
+    let mut mount_paths: Vec<String> = Vec::new();
+    for key in ["mutable_dirs", "mutable_dirs_shared"] {
+        if let Some(dirs) = options.get(key) {
+            for dir in dirs.split(',') {
+                for part in dir.split("::") {
+                    let part = part.trim();
+                    if !part.is_empty() {
+                        mount_paths.push(part.to_string());
+                    }
+                }
+            }
+        }
+    }
+    for mount_path in mount_paths {
+        let mount = format!("/.snapshots/rootfs/snapshot-chr{}/{}", snapshot, mount_path);
+        if is_mounted(Path::new(&mount)) {
+            umount2(Path::new(&mount), MntFlags::MNT_DETACH)?;
+        }
+    }
     chr_delete(snapshot)?;
     Ok(())
 }

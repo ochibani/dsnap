@@ -6,7 +6,7 @@
 // APT package manager
 pub mod apt;
 
-#[cfg(feature = "dnf")] //TODO
+#[cfg(feature = "dnf")]
 // DNF package manager
 pub mod dnf;
 
