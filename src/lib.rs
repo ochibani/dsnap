@@ -3192,10 +3192,13 @@ pub fn snapshot_config_edit(snapshot: &str) -> Result<(), Error> {
     } else {
         // Edit dsnap config
         prepare(snapshot)?;
-        if std::env::var("EDITOR").is_ok() {
-        Command::new("sh").arg("-c")
+        if !std::env::var("EDITOR").unwrap_or_default().trim().is_empty() {
+            let excode = Command::new("sh").arg("-c")
                           .arg(format!("$EDITOR /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/dsnap.conf", snapshot))
                           .status()?;
+            if !excode.success() {
+                eprintln!("The editor exited with an error; committing the configuration as it is.");
+            }
             // Commit the edit to etc-N and clean up the chroot, otherwise the
             // edit is silently discarded by the next prepare()
             post_transactions(snapshot)?;
