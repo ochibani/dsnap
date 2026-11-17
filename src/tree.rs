@@ -134,7 +134,10 @@ fn import_tree_file(treename: &str) -> Result<PyObject, PyErr> {
         let treefile = File::open(treename)?;
         let buf_read = BufReader::new(treefile);
         let mut read = buf_read.lines();
-        let treefile_readline = read.next().unwrap()?;
+        // A missing first line (empty or absent tree file) must be an
+        // error, not a panic
+        let treefile_readline = read.next()
+                                    .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Tree file {} is empty.", treename)))??;
 
         // Use literal_eval from ast
         let tree_file: PyObject = ast.getattr("literal_eval")?.call((treefile_readline,), None)?.extract()?;
