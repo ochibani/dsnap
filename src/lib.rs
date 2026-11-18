@@ -2047,9 +2047,10 @@ pub fn install_live(pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
     let snapshot = &get_current_snapshot();
     let tmp = get_tmp();
     dsnap_mounts(&tmp, "").unwrap();
-    install_package_helper_live(snapshot, &tmp, &pkgs, noconfirm)?;
+    let run = install_package_helper_live(snapshot, &tmp, &pkgs, noconfirm);
+    // Umount even when the install failed, otherwise the mounts leak
     dsnap_umounts(&tmp, "").unwrap();
-    Ok(())
+    run
 }
 
 // Install a profile from a text file
@@ -2189,6 +2190,7 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
     }
     // Mount tmp
     dsnap_mounts(&tmp, "")?;
+    let run = (|| -> Result<(), Error> {
     // Upgrade
     if upgrade_helper_live(&tmp, noconfirm).is_ok() {
 
@@ -2278,11 +2280,14 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
         return Err(Error::new(ErrorKind::Interrupted,
                               format!("System update failed.")));
     }
+    Ok(())
+    })();
 
-    // Umount tmp
+    // Umount tmp: the mounts must be released even when the profile
+    // installation failed partway
     dsnap_umounts(&tmp, "").unwrap();
 
-    Ok(())
+    run
 }
 
 // Triage functions for argparse method
@@ -2465,9 +2470,11 @@ pub fn list_subvolumes() {
 pub fn live_unlock() -> Result<(), Error> {
     let tmp = get_tmp();
     dsnap_mounts(&tmp, "")?;
-    chroot_in(&format!("/.snapshots/rootfs/snapshot-{}", tmp))?;
+    let run = chroot_in(&format!("/.snapshots/rootfs/snapshot-{}", tmp));
+    // Umount even when the shell could not be started, otherwise the
+    // mounts leak
     dsnap_umounts(&tmp, "")?;
-    Ok(())
+    run.map(|_| ())
 }
 
 // Auto update
@@ -3954,9 +3961,10 @@ pub fn uninstall(snapshot: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<
 pub fn uninstall_live(pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
     let tmp = get_tmp();
     dsnap_mounts(&tmp, "").unwrap();
-    uninstall_package_helper_live(&tmp, &pkgs, noconfirm)?;
+    let run = uninstall_package_helper_live(&tmp, &pkgs, noconfirm);
+    // Umount even when the uninstall failed, otherwise the mounts leak
     dsnap_umounts(&tmp, "").unwrap();
-    Ok(())
+    run
 }
 
 // Uninstall a profile from a text file
@@ -4045,6 +4053,7 @@ fn uninstall_profile_live(snapshot: &str,profile: &str, user_profile: &str, noco
 
     // Prepare
     dsnap_mounts(&tmp, "")?;
+    let run = (|| -> Result<(), Error> {
 
     // Profile configurations
     let mut profconf = Ini::new_cs();
@@ -4082,11 +4091,14 @@ fn uninstall_profile_live(snapshot: &str,profile: &str, user_profile: &str, noco
         return Err(Error::new(ErrorKind::InvalidInput,
                               format!("The profile is empty or invalid.")));
     }
+    Ok(())
+    })();
 
-    // Umount tmp
+    // Umount tmp: the mounts must be released even when the uninstall
+    // failed partway
     dsnap_umounts(&tmp, "").unwrap();
 
-    Ok(())
+    run
 }
 
 // Triage functions for argparse method
