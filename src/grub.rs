@@ -37,32 +37,34 @@ pub fn delete_old_grub_files(grub: &str) -> Result<(), Error> {
 }
 
 // Get Grub path
-pub fn get_grub(snapshot: &str) -> Option<String> {
+pub fn get_grub(snapshot: &str) -> Result<String, Error> {
     let boot_dir = format!("/.snapshots/boot/boot-{}", snapshot);
-    let grub_dirs: Vec<String> = WalkDir::new(boot_dir)
-        .into_iter()
-        .filter_map(|entry| {
-            let entry: DirEntry = entry.unwrap();
-            if entry.file_type().is_dir() {
-                if let Some(dir_path) = entry.path().file_name() {
-                    if dir_path == "grub" || dir_path == "grub2" {
-                        return Some(entry.path()
-                                    .strip_prefix(format!("/.snapshots/boot/boot-{}", snapshot))
-                                    .unwrap()
-                                    .to_string_lossy()
-                                    .into_owned());
-                    }
+    let mut grub_dirs: Vec<String> = Vec::new();
+    for entry in WalkDir::new(boot_dir) {
+        let entry = entry.map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+        if entry.file_type().is_dir() {
+            if let Some(dir_path) = entry.path().file_name() {
+                if dir_path == "grub" || dir_path == "grub2" {
+                    let rel = entry.path()
+                        .strip_prefix(format!("/.snapshots/boot/boot-{}", snapshot))
+                        .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?
+                        .to_string_lossy()
+                        .into_owned();
+                    grub_dirs.push(rel);
                 }
             }
-            None
-        })
-        .collect();
-    grub_dirs.get(0).cloned()
+        }
+    }
+    grub_dirs.sort();
+    grub_dirs.into_iter().next().ok_or_else(|| {
+        Error::new(ErrorKind::NotFound,
+                    format!("Could not find grub directory for snapshot {}.", snapshot))
+    })
 }
 
 // Switch between /recovery-tmp deployments
 pub fn switch_recovery_tmp(snapshot: &str, target_snapshot: &str) -> Result<(), Error> {
-    let grub = get_grub(snapshot).unwrap();
+    let grub = get_grub(snapshot)?;
     let part = get_part()?;
     let tmp_boot = TempDir::new_in("/.snapshots/tmp")?;
 
@@ -77,7 +79,7 @@ pub fn switch_recovery_tmp(snapshot: &str, target_snapshot: &str) -> Result<(), 
     let boot_location = tmp_boot.path().to_str().unwrap();
 
     // Read the contents of the file into a string
-    let target_grub = get_grub(target_snapshot).unwrap();
+    let target_grub = get_grub(target_snapshot)?;
     let grub_cfg = format!("{}/{}/grub.cfg", boot_location, target_grub);
     let src_file_path = format!("/.snapshots/rootfs/snapshot-{}/boot/{}/grub.cfg", source_dep,grub);
     let sfile = if Path::new(&src_file_path).is_file() {
@@ -192,7 +194,7 @@ pub fn switch_recovery_tmp(snapshot: &str, target_snapshot: &str) -> Result<(), 
 
 // Switch between /tmp deployments
 pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String, Error> {
-    let grub = get_grub(snapshot).unwrap();
+    let grub = get_grub(snapshot)?;
     let part = get_part()?;
     let rec_tmp = get_recovery_tmp();
     let tmp_boot = TempDir::new_in("/.snapshots/tmp")?;
@@ -204,7 +206,7 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
 
     // Swap deployment subvolumes: deploy <-> deploy-aux
     let source_dep = get_tmp();
-    let source_grub = get_grub(&source_dep).unwrap();
+    let source_grub = get_grub(&source_dep)?;
     let target_dep = get_aux_tmp(source_dep.to_string(), secondary);
     let excode = Command::new("cp").args(["-r", "--reflink=auto"])
                       .arg(format!("/.snapshots/rootfs/snapshot-{}/boot/{}", target_dep,grub))
@@ -333,7 +335,7 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
 // Update boot
 pub fn update_boot(snapshot: &str, secondary: bool) -> Result<(), Error> {
     // Path to grub directory
-    let grub = get_grub(snapshot).unwrap();
+    let grub = get_grub(snapshot)?;
 
     // Make sure snapshot does exist
     if !Path::new(&format!("/.snapshots/rootfs/snapshot-{}", snapshot)).try_exists()? {

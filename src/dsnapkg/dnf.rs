@@ -366,7 +366,7 @@ pub fn system_config(snapshot: &str, profconf: &Ini) -> Result<(), Error> {
 
     // Copy grub configuration
     #[cfg(feature = "grub")]
-    let grub = grub::get_grub(snapshot).unwrap();
+    let grub = grub::get_grub(snapshot)?;
     #[cfg(feature = "grub")]
     cp_reflink_no_clobber(format!("/.snapshots/rootfs/snapshot-{}/boot/{}/.", snapshot,grub),
                format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}", snapshot,grub))?;
