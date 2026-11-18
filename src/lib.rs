@@ -2196,15 +2196,11 @@ fn install_profile(snapshot: &str, profile: &str, force: bool, secondary: bool,
         if !profconf.sections().contains(&"profile-packages".to_string()) &&
             !profconf.sections().contains(&"disable-services".to_string()) &&
             !profconf.sections().contains(&"enable-services".to_string()) &&
-            !profconf.sections().contains(&"install-commands".to_string())
+            !profconf.sections().contains(&"install-commands".to_string()) &&
+            !(cfg!(feature = "pacman") && profconf.sections().contains(&"presets".to_string()))
         {
-            if cfg!(feature = "pacman") && !profconf.sections().contains(&"presets".to_string()) {
-                    return Err(Error::new(ErrorKind::InvalidInput,
-                                          format!("The profile is empty or invalid.")));
-                } else {
-                    return Err(Error::new(ErrorKind::InvalidInput,
-                                          format!("The profile is empty or invalid.")));
-                }
+            return Err(Error::new(ErrorKind::InvalidInput,
+                                  "The profile is empty or invalid.".to_string()));
         }
     }
     Ok(secondary)
@@ -2309,15 +2305,11 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
         if !profconf.sections().contains(&"profile-packages".to_string()) &&
             !profconf.sections().contains(&"disable-services".to_string()) &&
             !profconf.sections().contains(&"enable-services".to_string()) &&
-            !profconf.sections().contains(&"install-commands".to_string())
+            !profconf.sections().contains(&"install-commands".to_string()) &&
+            !(cfg!(feature = "pacman") && profconf.sections().contains(&"presets".to_string()))
         {
-            if cfg!(feature = "pacman") && !profconf.sections().contains(&"presets".to_string()) {
-                return Err(Error::new(ErrorKind::InvalidInput,
-                                          format!("The profile is empty or invalid.")));
-                } else {
-                    return Err(Error::new(ErrorKind::InvalidInput,
-                                          format!("The profile is empty or invalid.")));
-                }
+            return Err(Error::new(ErrorKind::InvalidInput,
+                                  "The profile is empty or invalid.".to_string()));
         }
 
     } else {
