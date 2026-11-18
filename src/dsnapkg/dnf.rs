@@ -211,20 +211,14 @@ pub fn install_package_helper_live(_snapshot: &str, tmp: &str, pkgs: &Vec<String
 
 // Check if service enabled
 pub fn is_service_enabled(snapshot: &str, service: &str) -> bool {
-    if Path::new("/var/lib/systemd/").try_exists().unwrap() {
-        let excode = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} systemctl is-enabled {}", snapshot,service))
-                                       .output().unwrap();
-        let stdout = String::from_utf8_lossy(&excode.stdout).trim().to_string();
-        if stdout == "enabled" {
-            return true;
-        } else {
-            return false;
-        }
-    } else {
+    if !Path::new("/var/lib/systemd/").try_exists().unwrap_or(false) {
         // TODO add OpenRC
         return false;
     }
+    let Ok(excode) = Command::new("sh").arg("-c")
+        .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} systemctl is-enabled {}", snapshot, service))
+        .output() else { return false; };
+    String::from_utf8_lossy(&excode.stdout).trim() == "enabled"
 }
 
 // Prevent system packages from being automatically removed
