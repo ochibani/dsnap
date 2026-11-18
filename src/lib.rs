@@ -2432,18 +2432,17 @@ pub fn install_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: &s
 
 // Check EFI
 pub fn is_efi() -> bool {
-    let is_efi = Path::new("/sys/firmware/efi").try_exists().unwrap();
-    is_efi
+    Path::new("/sys/firmware/efi").try_exists().unwrap_or(false)
 }
 
 // Check if path is mounted
 fn is_mounted(path: &Path) -> bool {
-    let mount_iter = MountIter::new().unwrap();
-    for mount in mount_iter {
-        if let Ok(mount) = mount {
-            if mount.dest == path {
-                return true;
-            }
+    let Ok(mount_iter) = MountIter::new() else {
+        return false;
+    };
+    for mount in mount_iter.flatten() {
+        if mount.dest == path {
+            return true;
         }
     }
     false
@@ -2637,9 +2636,9 @@ pub fn post_transactions(snapshot: &str) -> Result<(), Error> {
                 return Err(Error::new(ErrorKind::InvalidInput,
                                       format!("Please insert valid value for mutable_dirs in /.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot)));
             }
-            if is_mounted(Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/{}", snapshot,mount_path))) {
-                umount2(Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/{}", snapshot,mount_path)),
-                        MntFlags::MNT_DETACH).unwrap();
+            let mount = format!("/.snapshots/rootfs/snapshot-chr{}/{}", snapshot, mount_path);
+            if is_mounted(Path::new(&mount)) {
+                umount2(Path::new(&mount), MntFlags::MNT_DETACH)?;
             }
         }
     }
@@ -2649,9 +2648,9 @@ pub fn post_transactions(snapshot: &str) -> Result<(), Error> {
                 return Err(Error::new(ErrorKind::InvalidInput,
                                       format!("Please insert valid value for mutable_dirs_shared in /.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot)));
             }
-            if is_mounted(Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/{}", snapshot,mount_path))) {
-                umount2(Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/{}", snapshot,mount_path)),
-                        MntFlags::MNT_DETACH).unwrap();
+            let mount = format!("/.snapshots/rootfs/snapshot-chr{}/{}", snapshot, mount_path);
+            if is_mounted(Path::new(&mount)) {
+                umount2(Path::new(&mount), MntFlags::MNT_DETACH)?;
             }
         }
     }
@@ -3003,9 +3002,9 @@ pub fn rebuild(snapshot: &str, snap_num: i32, desc: &str) -> Result<i32, Error> 
                     return Err(Error::new(ErrorKind::InvalidInput,
                                           format!("Please insert valid value for mutable_dirs in /.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot)));
                 }
-                if is_mounted(Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/{}", snap_num,mount_path))) {
-                    umount2(Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/{}", snap_num,mount_path)),
-                            MntFlags::MNT_DETACH).unwrap();
+                let mount = format!("/.snapshots/rootfs/snapshot-chr{}/{}", snap_num, mount_path);
+                if is_mounted(Path::new(&mount)) {
+                    umount2(Path::new(&mount), MntFlags::MNT_DETACH)?;
                 }
             }
         }
@@ -3015,9 +3014,9 @@ pub fn rebuild(snapshot: &str, snap_num: i32, desc: &str) -> Result<i32, Error> 
                     return Err(Error::new(ErrorKind::InvalidInput,
                                           format!("Please insert valid value for mutable_dirs_shared in /.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot)));
                 }
-                if is_mounted(Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/{}", snap_num,mount_path))) {
-                    umount2(Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/{}", snap_num,mount_path)),
-                            MntFlags::MNT_DETACH).unwrap();
+                let mount = format!("/.snapshots/rootfs/snapshot-chr{}/{}", snap_num, mount_path);
+                if is_mounted(Path::new(&mount)) {
+                    umount2(Path::new(&mount), MntFlags::MNT_DETACH)?;
                 }
             }
         }
