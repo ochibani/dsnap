@@ -3566,10 +3566,10 @@ pub fn snapshot_unlock(snapshot: &str) -> Result<(), Error> {
 }
 
 // No comment
-pub fn switch_to_windows() -> std::process::ExitStatus {
+pub fn switch_to_windows() -> Result<ExitStatus, Error> {
     Command::new("efibootmgr").args(["-c", "-L", "Windows",
                                      "-l", "\\EFI\\BOOT\\BOOTX64.efi"])
-                              .status().unwrap()
+                              .status()
 }
 
 // Fetch the response headers of a HEAD request, optionally skipping TLS
@@ -3647,49 +3647,34 @@ pub fn sync_time() -> Result<(), Error> {
 
 // Clear all temporary snapshots
 pub fn temp_snapshots_clear() -> Result<(), Error> {
-    // Collect snapshots numbers
-    let boots = read_dir("/.snapshots/boot")
-        .unwrap().map(|entry| entry.unwrap().path()).collect::<Vec<_>>();
-    let etcs = read_dir("/.snapshots/etc")
-        .unwrap().map(|entry| entry.unwrap().path()).collect::<Vec<_>>();
-    let vars = read_dir("/.snapshots/var")
-        .unwrap().map(|entry| entry.unwrap().path()).collect::<Vec<_>>();
-    let mut snapshots = read_dir("/.snapshots/rootfs")
-        .unwrap().map(|entry| entry.unwrap().path()).collect::<Vec<_>>();
-    snapshots.append(&mut vars.clone());
-    snapshots.append(&mut etcs.clone());
-    snapshots.append(&mut boots.clone());
+    // Collect snapshot paths
+    let mut snapshots: Vec<PathBuf> = Vec::new();
+    for dir in ["/.snapshots/boot", "/.snapshots/etc", "/.snapshots/var", "/.snapshots/rootfs"] {
+        match read_dir(dir) {
+            Ok(entries) => {
+                for entry in entries {
+                    snapshots.push(entry?.path());
+                }
+            }
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+    }
 
     // Clear temp if exist
     for snapshot in snapshots {
-        if snapshot.to_str().unwrap().contains("snapshot-chr") {
-            // Make sure the path isn't being used
-            if !is_mounted(&snapshot) {
-                delete_subvolume(snapshot.to_str().unwrap())?;
-            } else {
-                eprintln!("{} is busy.", snapshot.to_str().unwrap());
-            }
-        } else if snapshot.to_str().unwrap().contains("var-chr") {
-            // Make sure the path isn't being used
-            if !is_mounted(&snapshot) {
-                delete_subvolume(snapshot.to_str().unwrap())?;
-            } else {
-                eprintln!("{} is busy.", snapshot.to_str().unwrap());
-            }
-        } else if snapshot.to_str().unwrap().contains("etc-chr") {
-            // Make sure the path isn't being used
-            if !is_mounted(&snapshot) {
-                delete_subvolume(snapshot.to_str().unwrap())?;
-            } else {
-                eprintln!("{} is busy.", snapshot.to_str().unwrap());
-            }
-        } else if snapshot.to_str().unwrap().contains("boot-chr") {
-            // Make sure the path isn't being used
-            if !is_mounted(&snapshot) {
-                delete_subvolume(snapshot.to_str().unwrap())?;
-            } else {
-                eprintln!("{} is busy.", snapshot.to_str().unwrap());
-            }
+        let s = snapshot.to_string_lossy();
+        let is_temp = s.contains("snapshot-chr")
+            || s.contains("var-chr")
+            || s.contains("etc-chr")
+            || s.contains("boot-chr");
+        if !is_temp {
+            continue;
+        }
+        if !is_mounted(&snapshot) {
+            delete_subvolume(&s)?;
+        } else {
+            eprintln!("{} is busy.", s);
         }
     }
     Ok(())
