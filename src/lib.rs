@@ -1629,7 +1629,10 @@ pub fn hollow(snapshot: &str) -> Result<(), Error> {
             immutability_disable(snapshot)?;
             deploy(snapshot, false, false)?;
         } else {
-            chr_delete(snapshot)?;
+            let teardown = hollow_teardown(snapshot);
+            let cleanup = chr_delete(snapshot);
+            teardown?;
+            cleanup?;
             return Err(Error::new(ErrorKind::Interrupted,
                                   format!("No changes applied on snapshot {}.", snapshot)));
         }
@@ -2655,6 +2658,45 @@ pub fn post_transactions(snapshot: &str) -> Result<(), Error> {
     Ok(())
 }
 
+// Tear down mounts created by prepare() and hollow() without committing content
+fn hollow_teardown(snapshot: &str) -> Result<(), Error> {
+    // Umount the nested chroot view inside the live-root bind
+    let nested = format!("/.snapshots/rootfs/snapshot-chr{}/.snapshots/rootfs/snapshot-chr{}/", snapshot, snapshot);
+    if is_mounted(Path::new(&nested)) {
+        umount2(Path::new(&nested), MntFlags::MNT_DETACH)?;
+    }
+    // Umount the live root bind hollow() put on top of the chroot
+    let chr_path = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
+    if is_mounted(Path::new(&chr_path)) {
+        umount2(Path::new(&chr_path), MntFlags::MNT_DETACH)?;
+    }
+    // Unwind the chroot mounts prepare() created (resolv, sys, proc, ..., self-bind)
+    dsnap_umounts(snapshot, "chr")?;
+    // Umount the mutable_dirs binds prepare() mounted into the chroot;
+    // dsnap_umounts() does not know about them
+    let options = snapshot_config_get(snapshot);
+    let mut mount_paths: Vec<String> = Vec::new();
+    for key in ["mutable_dirs", "mutable_dirs_shared"] {
+        if let Some(dirs) = options.get(key) {
+            for dir in dirs.split(',') {
+                for part in dir.split("::") {
+                    let part = part.trim();
+                    if !part.is_empty() {
+                        mount_paths.push(part.to_string());
+                    }
+                }
+            }
+        }
+    }
+    for mount_path in mount_paths {
+        let mount = format!("/.snapshots/rootfs/snapshot-chr{}/{}", snapshot, mount_path);
+        if is_mounted(Path::new(&mount)) {
+            umount2(Path::new(&mount), MntFlags::MNT_DETACH)?;
+        }
+    }
+    Ok(())
+}
+
 // Hollow  Post transaction function
 pub fn posttrans(snapshot: &str) -> Result<(), Error> {
     delete_subvolume(&format!("/.snapshots/rootfs/snapshot-{}", snapshot))?;
@@ -2687,36 +2729,7 @@ pub fn posttrans(snapshot: &str) -> Result<(), Error> {
     // fallback would then walk the topmost mount, which is the recursive
     // bind of the live root filesystem hollow() placed here, deleting the
     // running system's files through it.
-    // Umount the nested chroot view inside the live-root bind
-    umount2(Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/.snapshots/rootfs/snapshot-chr{}/", snapshot,snapshot)),
-            MntFlags::MNT_DETACH)?;
-    // Umount the live root bind hollow() put on top of the chroot
-    umount2(Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot)),
-            MntFlags::MNT_DETACH)?;
-    // Unwind the chroot mounts prepare() created (resolv, sys, proc, ..., self-bind)
-    dsnap_umounts(snapshot, "chr")?;
-    // Umount the mutable_dirs binds prepare() mounted into the chroot;
-    // dsnap_umounts() does not know about them
-    let options = snapshot_config_get(snapshot);
-    let mut mount_paths: Vec<String> = Vec::new();
-    for key in ["mutable_dirs", "mutable_dirs_shared"] {
-        if let Some(dirs) = options.get(key) {
-            for dir in dirs.split(',') {
-                for part in dir.split("::") {
-                    let part = part.trim();
-                    if !part.is_empty() {
-                        mount_paths.push(part.to_string());
-                    }
-                }
-            }
-        }
-    }
-    for mount_path in mount_paths {
-        let mount = format!("/.snapshots/rootfs/snapshot-chr{}/{}", snapshot, mount_path);
-        if is_mounted(Path::new(&mount)) {
-            umount2(Path::new(&mount), MntFlags::MNT_DETACH)?;
-        }
-    }
+    hollow_teardown(snapshot)?;
     chr_delete(snapshot)?;
     Ok(())
 }
