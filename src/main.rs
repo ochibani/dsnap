@@ -704,9 +704,13 @@ fn main() {
                               snapshot,snapshot);
                 } else {
                     // Run list
-                    let run = list(&snapshot, chr, exclude);
-                    for pkg in run {
-                        println!("{}", pkg);
+                    match list(&snapshot, chr, exclude) {
+                        Ok(pkgs) => {
+                            for pkg in pkgs {
+                                println!("{}", pkg);
+                            }
+                        }
+                        Err(e) => eprintln!("{}", e),
                     }
                 }
             }
@@ -837,7 +841,9 @@ fn main() {
             // Subvolumes list
             Some(("sub", _matches)) => {
                 // Run list_subvolumes
-                list_subvolumes();
+                if let Err(e) = list_subvolumes() {
+                    eprintln!("{}", e);
+                }
             }
             // Tree sync
             Some(("sync", sync_matches)) => {

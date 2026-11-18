@@ -533,7 +533,7 @@ pub fn chroot(snapshot: &str, cmds: Vec<String>) -> Result<(), Error> {
 
     // Make sure snapshot does exist
     if !Path::new(&format!("/.snapshots/rootfs/snapshot-{}", snapshot)).try_exists()? {
-        return Err(Error::new(ErrorKind::NotFound, format!("Cannot clone as snapshot {} doesn't exist.", snapshot)));
+        return Err(Error::new(ErrorKind::NotFound, format!("Cannot chroot as snapshot {} doesn't exist.", snapshot)));
 
     } else if Path::new(&path).try_exists()? {
         // Make sure snapshot is not in use by another dsnap process
@@ -551,67 +551,46 @@ pub fn chroot(snapshot: &str, cmds: Vec<String>) -> Result<(), Error> {
         if !cmds.is_empty() {
             // Chroot to snapshot path
             for cmd in cmds {
-                if prepare(snapshot).is_ok() {
-                    // Run command in chroot
-                    if chroot_exec(&path, &cmd).is_ok() {
-                        // Check for profile changes
-                        if check_profile(snapshot).is_ok() {
-                            // Make sure post_transactions exit properly
-                            match post_transactions(snapshot) {
-                                Ok(()) => {
-                                    // Do nothing
-                                }
-                                Err(error) => {
-                                    eprintln!("post_transactions error: {}", error);
-                                    // Clean chroot mount directories if command failed
-                                    chr_delete(snapshot)?;
-                                }
-                            }
-                        } else {
-                            // Clean chroot and unlock snapshot
-                            chr_delete(snapshot)?;
-                            return Err(Error::new(ErrorKind::Other,
-                                                  format!("Profile check failed and changes discarded.")));
-                        }
-                    } else {
-                        // Exit chroot and unlock snapshot
-                        chr_delete(snapshot)?;
-                    }
-                } else {
-                    // Unlock snapshot
+                prepare(snapshot)?;
+                // Run command in chroot
+                if let Err(e) = chroot_exec(&path, &cmd) {
                     chr_delete(snapshot)?;
+                    return Err(e);
                 }
-            }
-        } else if prepare(snapshot).is_ok() {
-            // Chroot
-            if chroot_in(&path)?.code().is_some() {
                 // Check for profile changes
-                if check_profile(snapshot).is_ok() {
-                    // Make sure post_transactions exit properly
-                    match post_transactions(snapshot) {
-                        Ok(()) => {
-                            // Do nothig
-                            }
-                        Err(error) => {
-                            eprintln!("post_transactions error: {}", error);
-                            // Clean chroot mount directories if command failed
-                            chr_delete(snapshot)?;
-
-                        }
-                    }
-                } else {
-                    // Clean chroot and unlock snapshot
+                if check_profile(snapshot).is_err() {
                     chr_delete(snapshot)?;
                     return Err(Error::new(ErrorKind::Other,
-                                          format!("Profile check failed and changes discarded.")));
+                                          "Profile check failed and changes discarded.".to_string()));
                 }
-            } else {
-                // Unlock snapshot
-                chr_delete(snapshot)?;
+                // Make sure post_transactions exit properly
+                if let Err(error) = post_transactions(snapshot) {
+                    let _ = chr_delete(snapshot);
+                    return Err(Error::new(ErrorKind::Other,
+                                          format!("post_transactions error: {}", error)));
+                }
             }
         } else {
-            // Unlock snapshot
-            chr_delete(snapshot)?;
+            prepare(snapshot)?;
+            // Chroot
+            let status = chroot_in(&path)?;
+            if status.code().is_none() {
+                chr_delete(snapshot)?;
+                return Err(Error::new(ErrorKind::Interrupted,
+                                      "Chroot process terminated by signal.".to_string()));
+            }
+            // Check for profile changes
+            if check_profile(snapshot).is_err() {
+                chr_delete(snapshot)?;
+                return Err(Error::new(ErrorKind::Other,
+                                      "Profile check failed and changes discarded.".to_string()));
+            }
+            // Make sure post_transactions exit properly
+            if let Err(error) = post_transactions(snapshot) {
+                let _ = chr_delete(snapshot);
+                return Err(Error::new(ErrorKind::Other,
+                                      format!("post_transactions error: {}", error)));
+            }
         }
     }
     Ok(())
@@ -2237,7 +2216,7 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
         println!("Updating the system before installing {} profile...", user_profile);
     }
     // Mount tmp
-    dsnap_mounts(&tmp, "")?;
+    dsnap_mounts(&tmp, "").map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
     let run = (|| -> Result<(), Error> {
     // Upgrade
     if upgrade_helper_live(&tmp, noconfirm).is_ok() {
@@ -2249,7 +2228,7 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
 
         // Load profile if exist
         if Path::new(&cfile).is_file() && !force && user_profile.is_empty() {
-            profconf.load(&cfile).unwrap();
+            profconf.load(&cfile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
         } else if force {
             println!("Installing profiles...");
             install_package_helper_live(snapshot, &tmp, &vec!["dsnap-profiles".to_string()], true)?;
@@ -2259,10 +2238,10 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
             profconf.load(&live_cfile).map_err(|_| Error::new(ErrorKind::NotFound,
                                   format!("Profile {} was not found in the dsnap-profiles package.", profile)))?;
         } else if !user_profile.is_empty() {
-            profconf.load(user_profile).unwrap();
+            profconf.load(user_profile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
         } else if !Path::new(&cfile).is_file() && !force {
             return Err(Error::new(ErrorKind::NotFound,
-                                  format!("Please install dsnap-profiles package.")));
+                                  "Please install dsnap-profiles package.".to_string()));
         }
 
         // Read presets section in configuration file
@@ -2270,26 +2249,26 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
         if profconf.sections().contains(&"presets".to_string()) {
             if !aur_check(snapshot) {
                 return Err(Error::new(ErrorKind::Unsupported,
-                                      format!("Please enable AUR.")));
+                                      "Please enable AUR.".to_string()));
             }
         }
 
         // Read packages section in configuration file
         if profconf.sections().contains(&"profile-packages".to_string()) {
-            let mut pkgs: Vec<String> = Vec::new();
-            for pkg in profconf.get_map().unwrap().get("profile-packages").unwrap().keys() {
-                pkgs.push(pkg.to_string());
-            }
+            let section = profconf.get_map_ref().get("profile-packages")
+                .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Invalid profile: missing profile-packages section."))?;
+            let mut pkgs: Vec<String> = section.keys().cloned().collect();
+            pkgs.retain(|p| !p.trim().is_empty());
             // Install package(s)
             install_package_helper_live(snapshot, &tmp, &pkgs, noconfirm)?;
         }
 
         // Read disable services section in configuration file
         if profconf.sections().contains(&"disable-services".to_string()) {
-            let mut services: Vec<String> = Vec::new();
-            for service in profconf.get_map().unwrap().get("disable-services").unwrap().keys() {
-                services.push(service.to_string());
-            }
+            let section = profconf.get_map_ref().get("disable-services")
+                .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Invalid profile: missing disable-services section."))?;
+            let mut services: Vec<String> = section.keys().cloned().collect();
+            services.retain(|s| !s.trim().is_empty());
             // Disable service(s) in the live snapshot; the "chr" mode
             // targets snapshot-chr{snapshot} which is not created by the
             // live flow
@@ -2298,18 +2277,22 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
 
         // Read enable services section in configuration file
         if profconf.sections().contains(&"enable-services".to_string()) {
-            let mut services: Vec<String> = Vec::new();
-            for service in profconf.get_map().unwrap().get("enable-services").unwrap().keys() {
-                services.push(service.to_string());
-            }
+            let section = profconf.get_map_ref().get("enable-services")
+                .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Invalid profile: missing enable-services section."))?;
+            let mut services: Vec<String> = section.keys().cloned().collect();
+            services.retain(|s| !s.trim().is_empty());
             // Enable service(s) in the live snapshot
             service_enable(&tmp, &services, "")?;
         }
 
         // Read commands section in configuration file
         if profconf.sections().contains(&"install-commands".to_string()) {
-            for cmd in profconf.get_map().unwrap().get("install-commands").unwrap().keys() {
-                chroot_exec(&format!("/.snapshots/rootfs/snapshot-{}", tmp), cmd)?;
+            let section = profconf.get_map_ref().get("install-commands")
+                .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Invalid profile: missing install-commands section."))?;
+            for cmd in section.keys() {
+                if !cmd.trim().is_empty() {
+                    chroot_exec(&format!("/.snapshots/rootfs/snapshot-{}", tmp), cmd)?;
+                }
             }
         }
 
@@ -2326,14 +2309,19 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
 
     } else {
         return Err(Error::new(ErrorKind::Interrupted,
-                              format!("System update failed.")));
+                              "System update failed.".to_string()));
     }
     Ok(())
     })();
 
     // Umount tmp: the mounts must be released even when the profile
     // installation failed partway
-    dsnap_umounts(&tmp, "").unwrap();
+    if let Err(e) = dsnap_umounts(&tmp, "") {
+        if run.is_ok() {
+            return Err(Error::new(ErrorKind::Other, e.to_string()));
+        }
+        eprintln!("Failed to unmount live snapshot {}: {}", tmp, e);
+    }
 
     run
 }
@@ -2511,23 +2499,34 @@ fn is_system_pkg(profconf: &Ini, pkg: String) -> bool {
 }
 
 // Package list
-pub fn list(snapshot: &str, chr: &str, exclude: bool) -> Vec<String> {
+pub fn list(snapshot: &str, chr: &str, exclude: bool) -> Result<Vec<String>, Error> {
     let list = if exclude {
-        prepare(snapshot).unwrap();
-        let list = no_dep_pkg_list(snapshot, chr);
-        post_transactions(snapshot).unwrap();
-        list
+        prepare(snapshot)?;
+        let result = no_dep_pkg_list(snapshot, chr);
+        post_transactions(snapshot)?;
+        result
     } else {
         pkg_list(snapshot, chr)
     };
-    list
+    Ok(list)
 }
 
 // List sub-volumes for the booted distro only
-pub fn list_subvolumes() {
+pub fn list_subvolumes() -> Result<(), Error> {
     #[cfg(feature = "btrfs")]
-    let args = "btrfs sub list / | grep -i _linux | sort -f -k 9";
-    Command::new("sh").arg("-c").arg(args).status().unwrap();
+    {
+        let status = Command::new("sh").arg("-c")
+            .arg("btrfs sub list / | grep -i _linux | sort -f -k 9")
+            .status()?;
+        if !status.success() {
+            return Err(Error::new(ErrorKind::Other, "Failed to list subvolumes.".to_string()));
+        }
+    }
+    #[cfg(not(feature = "btrfs"))]
+    {
+        return Err(Error::new(ErrorKind::Unsupported, "Subvolume listing is not supported for this filesystem.".to_string()));
+    }
+    Ok(())
 }
 
 // Live unlocked shell
@@ -4141,7 +4140,7 @@ fn uninstall_profile(snapshot: &str, profile: &str, user_profile: &str, noconfir
 }
 
 // Uninstall profile in live snapshot
-fn uninstall_profile_live(snapshot: &str,profile: &str, user_profile: &str, noconfirm: bool) -> Result<(), Error> {
+fn uninstall_profile_live(_snapshot: &str,profile: &str, user_profile: &str, noconfirm: bool) -> Result<(), Error> {
     // Get some values
     let distro = detect::distro_id();
     let dist_name = if distro.contains("_ashos") {
@@ -4153,7 +4152,7 @@ fn uninstall_profile_live(snapshot: &str,profile: &str, user_profile: &str, noco
     let tmp = get_tmp();
 
     // Prepare
-    dsnap_mounts(&tmp, "")?;
+    dsnap_mounts(&tmp, "").map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
     let run = (|| -> Result<(), Error> {
 
     // Profile configurations
@@ -4163,25 +4162,29 @@ fn uninstall_profile_live(snapshot: &str,profile: &str, user_profile: &str, noco
 
     // Load profile if exist
     if Path::new(&cfile).is_file() && user_profile.is_empty() {
-        profconf.load(&cfile).unwrap();
+        profconf.load(&cfile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
     } else if !user_profile.is_empty() {
-        profconf.load(user_profile).unwrap();
+        profconf.load(user_profile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
     }
 
     // Read packages section in configuration file
     if profconf.sections().contains(&"profile-packages".to_string()) {
-        let mut pkgs: Vec<String> = Vec::new();
-        for pkg in profconf.get_map().unwrap().get("profile-packages").unwrap().keys() {
-            pkgs.push(pkg.to_string());
-        }
+        let section = profconf.get_map_ref().get("profile-packages")
+            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Invalid profile: missing profile-packages section."))?;
+        let mut pkgs: Vec<String> = section.keys().cloned().collect();
+        pkgs.retain(|p| !p.trim().is_empty());
         // Uninstall package(s)
         uninstall_package_helper_live(&tmp, &pkgs, noconfirm)?;
     }
 
     // Read commands section in configuration file
     if profconf.sections().contains(&"uninstall-commands".to_string()) {
-        for cmd in profconf.get_map().unwrap().get("uninstall-commands").unwrap().keys() {
-            chroot_exec(&format!("/.snapshots/rootfs/snapshot-{}", tmp), cmd)?;
+        let section = profconf.get_map_ref().get("uninstall-commands")
+            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Invalid profile: missing uninstall-commands section."))?;
+        for cmd in section.keys() {
+            if !cmd.trim().is_empty() {
+                chroot_exec(&format!("/.snapshots/rootfs/snapshot-{}", tmp), cmd)?;
+            }
         }
     }
 
@@ -4190,14 +4193,19 @@ fn uninstall_profile_live(snapshot: &str,profile: &str, user_profile: &str, noco
         !profconf.sections().contains(&"uninstall-commands".to_string())
     {
         return Err(Error::new(ErrorKind::InvalidInput,
-                              format!("The profile is empty or invalid.")));
+                              "The profile is empty or invalid.".to_string()));
     }
     Ok(())
     })();
 
     // Umount tmp: the mounts must be released even when the uninstall
     // failed partway
-    dsnap_umounts(&tmp, "").unwrap();
+    if let Err(e) = dsnap_umounts(&tmp, "") {
+        if run.is_ok() {
+            return Err(Error::new(ErrorKind::Other, e.to_string()));
+        }
+        eprintln!("Failed to unmount live snapshot {}: {}", tmp, e);
+    }
 
     run
 }
