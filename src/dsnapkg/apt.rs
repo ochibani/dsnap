@@ -88,9 +88,11 @@ pub fn bootstrap(snapshot: &str) -> Result<(), Error> {
 pub fn cache_copy(snapshot: &str, prepare: bool) -> Result<(), Error> {
     let tmp = get_tmp();
     if prepare {
-        cp_reflink_no_clobber(format!("/.snapshots/rootfs/snapshot-{}/var/cache/apt/archives/.", snapshot),
-                   format!("/.snapshots/rootfs/snapshot-chr{}/var/cache/apt/archives", tmp))?;
+        // Populate the chroot cache from the deployed snapshot's cache
+        cp_reflink_no_clobber(format!("/.snapshots/rootfs/snapshot-{}/var/cache/apt/archives/.", tmp),
+                   format!("/.snapshots/rootfs/snapshot-chr{}/var/cache/apt/archives", snapshot))?;
     } else {
+        // Persist the chroot cache back to the deployed snapshot
         cp_reflink_no_clobber(format!("/.snapshots/rootfs/snapshot-chr{}/var/cache/apt/archives/.", snapshot),
                    format!("/.snapshots/rootfs/snapshot-{}/var/cache/apt/archives", tmp))?;
     }

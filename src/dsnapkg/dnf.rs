@@ -78,9 +78,11 @@ pub fn bootstrap(snapshot: &str) -> Result<(), Error> {
 pub fn cache_copy(snapshot: &str, prepare: bool) -> Result<(), Error> {
     let tmp = get_tmp();
     if prepare {
-        cp_reflink_no_clobber(format!("/.snapshots/rootfs/snapshot-{}/var/cache/dnf/.", snapshot),
-                   format!("/.snapshots/rootfs/snapshot-chr{}/var/cache/dnf", tmp))?;
+        // Populate the chroot cache from the deployed snapshot's cache
+        cp_reflink_no_clobber(format!("/.snapshots/rootfs/snapshot-{}/var/cache/dnf/.", tmp),
+                   format!("/.snapshots/rootfs/snapshot-chr{}/var/cache/dnf", snapshot))?;
     } else {
+        // Persist the chroot cache back to the deployed snapshot
         cp_reflink_no_clobber(format!("/.snapshots/rootfs/snapshot-chr{}/var/cache/dnf/.", snapshot),
                    format!("/.snapshots/rootfs/snapshot-{}/var/cache/dnf", tmp))?;
     }
@@ -292,7 +294,7 @@ pub fn pkg_query(pkg: &str) -> Result<String, Error> {
 // Refresh snapshot atomic-operation
 pub fn refresh_helper(snapshot: &str) -> Result<(), Error> {
     let refresh = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-chr{}", snapshot))
-                                        .args(["dnf", "update"])
+                                        .args(["dnf", "makecache"])
                                         .status()?;
     if !refresh.success() {
         return Err(Error::new(ErrorKind::Other,
