@@ -1467,11 +1467,17 @@ pub fn get_current_snapshot() -> String {
 // Get snapshot name in tmp
 fn get_import_snapshot_name(path: &str) -> Option<String> {
     for entry in WalkDir::new(path).max_depth(1) {
-        let entry = entry.unwrap();
+        let Ok(entry) = entry else {
+            continue;
+        };
         let path = entry.path();
-        if path.is_dir() && path.to_str().unwrap().contains("snapshot-") {
-            let snapshot = path.file_name().unwrap().to_str().unwrap().to_string();
-            return Some(snapshot);
+        if !path.is_dir() {
+            continue;
+        }
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if name.contains("snapshot-") {
+                return Some(name.to_string());
+            }
         }
     }
     None
@@ -1532,15 +1538,16 @@ pub fn get_recovery_aux_tmp(tmp: &str) -> String {
 
 // Get recovery tmp state
 pub fn get_recovery_tmp() -> String {
-    if Path::new("/.snapshots/rootfs/snapshot-0/usr/share/dsnap/rec-tmp").is_file() {
-        let mut file = File::open("/.snapshots/rootfs/snapshot-0/usr/share/dsnap/rec-tmp").unwrap();
-        let mut contents = String::new();
-        file.read_to_string(&mut contents).unwrap();
-        let tmp = contents.trim().to_string();
-        return tmp;
-    } else {
-        return "recovery-deploy".to_string();
+    let path = "/.snapshots/rootfs/snapshot-0/usr/share/dsnap/rec-tmp";
+    if Path::new(path).is_file() {
+        if let Ok(contents) = read_to_string(path) {
+            let tmp = contents.trim().to_string();
+            if !tmp.is_empty() {
+                return tmp;
+            }
+        }
     }
+    "recovery-deploy".to_string()
 }
 
 // Get tmp partition state
