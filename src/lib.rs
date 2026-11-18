@@ -2056,12 +2056,15 @@ pub fn install(snapshot: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<()
 
         // Install package
         } else {
-        if install_package_helper(snapshot, &pkgs, noconfirm).is_ok() {
-            post_transactions(snapshot)?;
-            } else {
-            chr_delete(snapshot)?;
+        if let Err(e) = install_package_helper(snapshot, &pkgs, noconfirm) {
+            let _ = chr_delete(snapshot);
             return Err(Error::new(ErrorKind::Interrupted,
-                                  format!("Install failed and changes discarded.")));
+                                  format!("Install failed and changes discarded: {}", e)));
+        }
+        if let Err(e) = post_transactions(snapshot) {
+            let _ = chr_delete(snapshot);
+            return Err(Error::new(ErrorKind::Other,
+                                  format!("Install failed and changes discarded: {}", e)));
         }
     }
     Ok(())
@@ -4012,15 +4015,17 @@ pub fn uninstall(snapshot: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<
     } else {
         // Uninstall package
         prepare(snapshot)?;
-        let excode = uninstall_package_helper(snapshot, &pkgs, noconfirm);
-        if excode.is_ok() {
-            post_transactions(snapshot)?;
-            println!("Package(s) {pkgs:?} removed from snapshot {} successfully.", snapshot);
-        } else {
-            chr_delete(snapshot)?;
+        if let Err(e) = uninstall_package_helper(snapshot, &pkgs, noconfirm) {
+            let _ = chr_delete(snapshot);
             return Err(Error::new(ErrorKind::Interrupted,
-                                  "Remove failed and changes discarded.".to_string()));
+                                  format!("Remove failed and changes discarded: {}", e)));
         }
+        if let Err(e) = post_transactions(snapshot) {
+            let _ = chr_delete(snapshot);
+            return Err(Error::new(ErrorKind::Other,
+                                  format!("Remove failed and changes discarded: {}", e)));
+        }
+        println!("Package(s) {pkgs:?} removed from snapshot {} successfully.", snapshot);
     }
     Ok(())
 }
