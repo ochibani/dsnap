@@ -2110,18 +2110,22 @@ fn install_profile(snapshot: &str, profile: &str, force: bool, secondary: bool,
                               format!("Changing base snapshot is not allowed.")));
     } else {
         // Install profile
-        println!("Updating the system before installing {} profile...", profile);
+        if user_profile.is_empty() {
+            println!("Updating the system before installing {} profile...", profile);
+        } else {
+            println!("Updating the system before installing {} profile...", user_profile);
+        }
         // Prepare
         auto_upgrade(snapshot)?;
         prepare(snapshot)?;
-
+        let run = (|| -> Result<bool, Error> {
         // Profile configurations
         let mut profconf = Ini::new_cs();
         profconf.set_comment_symbols(&['#']);
         profconf.set_multiline(true);
         // Load profile if exist
         if Path::new(&cfile).is_file() && !force && user_profile.is_empty() {
-            profconf.load(&cfile).unwrap();
+            profconf.load(&cfile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
         } else if force {
             println!("Installing profiles...");
             install_package_helper(snapshot, &vec!["dsnap-profiles".to_string()], true)?;
@@ -2131,10 +2135,10 @@ fn install_profile(snapshot: &str, profile: &str, force: bool, secondary: bool,
             profconf.load(&chr_cfile).map_err(|_| Error::new(ErrorKind::NotFound,
                                   format!("Profile {} was not found in the dsnap-profiles package.", profile)))?;
         } else if !user_profile.is_empty() {
-            profconf.load(user_profile).unwrap();
+            profconf.load(user_profile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
         } else if !Path::new(&cfile).is_file() && !force {
             return Err(Error::new(ErrorKind::NotFound,
-                                  format!("Please install dsnap-profiles package.")));
+                                  "Please install dsnap-profiles package.".to_string()));
         }
 
         // Read presets section in configuration file
@@ -2142,44 +2146,48 @@ fn install_profile(snapshot: &str, profile: &str, force: bool, secondary: bool,
         if profconf.sections().contains(&"presets".to_string()) {
             if !aur_check(snapshot) {
                 return Err(Error::new(ErrorKind::Unsupported,
-                                      format!("Please enable AUR.")));
+                                      "Please enable AUR.".to_string()));
             }
         }
 
         // Read packages section in configuration file
         if profconf.sections().contains(&"profile-packages".to_string()) {
-            let mut pkgs: Vec<String> = Vec::new();
-            for pkg in profconf.get_map().unwrap().get("profile-packages").unwrap().keys() {
-                pkgs.push(pkg.to_string());
-            }
+            let section = profconf.get_map_ref().get("profile-packages")
+                .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Invalid profile: missing profile-packages section."))?;
+            let mut pkgs: Vec<String> = section.keys().cloned().collect();
+            pkgs.retain(|p| !p.trim().is_empty());
             // Install package(s)
             install_package_helper(snapshot, &pkgs, noconfirm)?;
         }
 
         // Read disable services section in configuration file
         if profconf.sections().contains(&"disable-services".to_string()) {
-            let mut services: Vec<String> = Vec::new();
-            for service in profconf.get_map().unwrap().get("disable-services").unwrap().keys() {
-                services.push(service.to_string());
-            }
+            let section = profconf.get_map_ref().get("disable-services")
+                .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Invalid profile: missing disable-services section."))?;
+            let mut services: Vec<String> = section.keys().cloned().collect();
+            services.retain(|s| !s.trim().is_empty());
             // Disable service(s)
             service_disable(snapshot, &services, "chr")?;
         }
 
         // Read enable services section in configuration file
         if profconf.sections().contains(&"enable-services".to_string()) {
-            let mut services: Vec<String> = Vec::new();
-            for service in profconf.get_map().unwrap().get("enable-services").unwrap().keys() {
-                services.push(service.to_string());
-            }
+            let section = profconf.get_map_ref().get("enable-services")
+                .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Invalid profile: missing enable-services section."))?;
+            let mut services: Vec<String> = section.keys().cloned().collect();
+            services.retain(|s| !s.trim().is_empty());
             // Enable service(s)
             service_enable(snapshot, &services, "chr")?;
         }
 
         // Read commands section in configuration file
         if profconf.sections().contains(&"install-commands".to_string()) {
-            for cmd in profconf.get_map().unwrap().get("install-commands").unwrap().keys() {
-                chroot_exec(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot), cmd)?;
+            let section = profconf.get_map_ref().get("install-commands")
+                .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Invalid profile: missing install-commands section."))?;
+            for cmd in section.keys() {
+                if !cmd.trim().is_empty() {
+                    chroot_exec(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot), cmd)?;
+                }
             }
         }
 
@@ -2193,8 +2201,13 @@ fn install_profile(snapshot: &str, profile: &str, force: bool, secondary: bool,
             return Err(Error::new(ErrorKind::InvalidInput,
                                   "The profile is empty or invalid.".to_string()));
         }
+        Ok(secondary)
+        })();
+        if run.is_err() {
+            let _ = chr_delete(snapshot);
+        }
+        run
     }
-    Ok(secondary)
 }
 
 // Install profile in live snapshot
@@ -4097,32 +4110,36 @@ fn uninstall_profile(snapshot: &str, profile: &str, user_profile: &str, noconfir
         // Uninstall profile
         // Prepare
         prepare(snapshot)?;
-
+        let run = (|| -> Result<(), Error> {
         // Profile configurations
         let mut profconf = Ini::new_cs();
         profconf.set_comment_symbols(&['#']);
         profconf.set_multiline(true);
         // Load profile if exist
         if Path::new(&cfile).is_file() && user_profile.is_empty() {
-            profconf.load(&cfile).unwrap();
+            profconf.load(&cfile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
         } else if !user_profile.is_empty() {
-            profconf.load(user_profile).unwrap();
+            profconf.load(user_profile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
         }
 
         // Read commands section in configuration file
         if profconf.sections().contains(&"uninstall-commands".to_string()) {
-            for cmd in profconf.get_map().unwrap().get("uninstall-commands").unwrap().keys() {
-                chroot_exec(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot), cmd)?;
+            let section = profconf.get_map_ref().get("uninstall-commands")
+                .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Invalid profile: missing uninstall-commands section."))?;
+            for cmd in section.keys() {
+                if !cmd.trim().is_empty() {
+                    chroot_exec(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot), cmd)?;
+                }
             }
         }
 
         // Read packages section in configuration file
         if profconf.sections().contains(&"profile-packages".to_string()) {
-            let mut pkgs: Vec<String> = Vec::new();
-            for pkg in profconf.get_map().unwrap().get("profile-packages").unwrap().keys() {
-                pkgs.push(pkg.to_string());
-            }
-            // Install package(s)
+            let section = profconf.get_map_ref().get("profile-packages")
+                .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Invalid profile: missing profile-packages section."))?;
+            let mut pkgs: Vec<String> = section.keys().cloned().collect();
+            pkgs.retain(|p| !p.trim().is_empty());
+            // Uninstall package(s)
             uninstall_package_helper(snapshot, &pkgs, noconfirm)?;
         }
 
@@ -4131,11 +4148,15 @@ fn uninstall_profile(snapshot: &str, profile: &str, user_profile: &str, noconfir
             !profconf.sections().contains(&"uninstall-commands".to_string())
         {
             return Err(Error::new(ErrorKind::InvalidInput,
-                                  format!("The profile is empty or invalid.")));
+                                  "The profile is empty or invalid.".to_string()));
         }
-
+        Ok(())
+        })();
+        if run.is_err() {
+            let _ = chr_delete(snapshot);
+        }
+        run
     }
-    Ok(())
 }
 
 // Uninstall profile in live snapshot
