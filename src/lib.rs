@@ -1364,9 +1364,22 @@ pub fn export(snapshot: &str, dest: &str) -> Result<(), Error> {
 
     // Send btrfs to destination
     #[cfg(feature = "btrfs")]
-    Command::new("sh").arg("-c")
-                      .arg(format!("sudo btrfs send /.snapshots/rootfs/snapshot-{} | zstd -o {}/snapshot-{}.{}.zst",
-                                   snapshot,dest,snapshot,formatted)).status()?;
+    {
+        // The destination is passed as $1 so paths with spaces or shell
+        // metacharacters survive, and the pipeline status is checked:
+        // otherwise a failed btrfs send was silently ignored whenever
+        // zstd exited successfully
+        let excode = Command::new("sh").arg("-c")
+                       .arg(format!("sudo btrfs send /.snapshots/rootfs/snapshot-{} | zstd -o \"$1/snapshot-{}.{}.zst\"",
+                                    snapshot, snapshot, formatted))
+                       .arg("sh")
+                       .arg(dest)
+                       .status()?;
+        if !excode.success() {
+            return Err(Error::new(ErrorKind::Other,
+                                  format!("Failed to export snapshot {} to {}.", snapshot, dest)));
+        }
+    }
 
     Ok(())
 }
