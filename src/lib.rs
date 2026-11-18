@@ -146,7 +146,10 @@ pub fn dsnap_umounts(i: &str, chr: &str) -> nix::Result<()> {
     } else {
         umount2(Path::new(&format!("{}/run/systemd/resolve/stub-resolv.conf", snapshot_path)),
                 MntFlags::empty())?;
-        std::fs::remove_dir_all(format!("{}/run/systemd/resolve", snapshot_path)).unwrap();
+        // Only remove the file we created; /run is a bind of the host's
+        // /run (or a shared path), so removing the directory would
+        // destroy the live host's systemd-resolved state
+        let _ = std::fs::remove_file(format!("{}/run/systemd/resolve/stub-resolv.conf", snapshot_path));
     }
 
     // Check EFI
