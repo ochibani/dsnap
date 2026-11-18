@@ -3439,8 +3439,9 @@ pub fn snapshot_unlock(snapshot: &str) -> Result<(), Error> {
 
 // No comment
 pub fn switch_to_windows() -> std::process::ExitStatus {
-    Command::new("efibootmgr").args(["-c", "-L"])
-                      .arg(format!("'Windows' -l '\\EFI\\BOOT\\BOOTX64.efi'")).status().unwrap()
+    Command::new("efibootmgr").args(["-c", "-L", "Windows",
+                                     "-l", "\\EFI\\BOOT\\BOOTX64.efi"])
+                              .status().unwrap()
 }
 
 // Fetch the response headers of a HEAD request, optionally skipping TLS
