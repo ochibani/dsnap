@@ -55,7 +55,7 @@ pub fn get_grub(snapshot: &str) -> Option<String> {
 // Switch between /recovery-tmp deployments
 pub fn switch_recovery_tmp(snapshot: &str, target_snapshot: &str) -> Result<(), Error> {
     let grub = get_grub(snapshot).unwrap();
-    let part = get_part();
+    let part = get_part()?;
     let tmp_boot = TempDir::new_in("/.snapshots/tmp")?;
 
     // Mount boot partition for writing
@@ -176,7 +176,7 @@ pub fn switch_recovery_tmp(snapshot: &str, target_snapshot: &str) -> Result<(), 
 // Switch between /tmp deployments
 pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String, Error> {
     let grub = get_grub(snapshot).unwrap();
-    let part = get_part();
+    let part = get_part()?;
     let rec_tmp = get_recovery_tmp();
     let tmp_boot = TempDir::new_in("/.snapshots/tmp")?;
 
@@ -336,7 +336,7 @@ pub fn update_boot(snapshot: &str, secondary: bool) -> Result<(), Error> {
         let tmp = get_aux_tmp(tmp, secondary);
 
         // Partition path
-        let part = get_part();
+        let part = get_part()?;
 
         // Prepare for update
         prepare(snapshot)?;

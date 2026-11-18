@@ -1516,15 +1516,20 @@ pub fn get_next_snapshot() -> String {
 }
 
 // Get drive partition
-pub fn get_part() -> String {
+pub fn get_part() -> Result<String, Error> {
     // Read part UUID
-    let mut file = File::open("/.snapshots/dsnap/part").unwrap();
+    let mut file = File::open("/.snapshots/dsnap/part")?;
     let mut contents = String::new();
-    file.read_to_string(&mut contents).unwrap();
+    file.read_to_string(&mut contents)?;
 
     // Get partition path from UUID
-    let cpart = PartitionID::new(PartitionSource::UUID, contents.trim_end().to_string());
-    cpart.get_device_path().unwrap().to_string_lossy().into_owned()
+    let uuid = contents.trim_end().to_string();
+    let cpart = PartitionID::new(PartitionSource::UUID, uuid.clone());
+    match cpart.get_device_path() {
+        Some(path) => Ok(path.to_string_lossy().into_owned()),
+        None => Err(Error::new(ErrorKind::NotFound,
+                               format!("Could not resolve partition with UUID {}.", uuid))),
+    }
 }
 
 // Get recovery aux tmp
@@ -1565,7 +1570,15 @@ pub fn get_tmp() -> String {
         }
     })
     .collect();
-    if mount.iter().any(|element| element.contains("deploy-aux-secondary")) {
+    // Check recovery deployments first so they are not mistaken for
+    // regular deploy slots by substring matches
+    if mount.iter().any(|element| element.contains("recovery-deploy-aux")) {
+        let r = String::from("recovery-deploy-aux");
+        return r;
+    } else if mount.iter().any(|element| element.contains("recovery-deploy")) {
+        let r = String::from("recovery-deploy");
+        return r;
+    } else if mount.iter().any(|element| element.contains("deploy-aux-secondary")) {
         let r = String::from("deploy-aux-secondary");
         return r;
     } else if mount.iter().any(|element| element.contains("deploy-secondary")) {
@@ -3076,30 +3089,33 @@ pub fn rebuild_prep(snapshot: &str) -> Result<(), Error> {
 pub fn refresh(snapshot: &str) -> Result<(), Error> {
     // Make sure snapshot exists
     if !Path::new(&format!("/.snapshots/rootfs/snapshot-{}", snapshot)).try_exists()? {
-        eprintln!("Cannot refresh as snapshot {} doesn't exist.", snapshot);
+        return Err(Error::new(ErrorKind::NotFound,
+                              format!("Cannot refresh as snapshot {} doesn't exist.", snapshot)));
 
         // Make sure snapshot is not in use by another dsnap process
-        } else if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot)).try_exists()? {
-        eprintln!("Snapshot {} appears to be in use. If you're certain it's not in use, clear lock with 'dsnap unlock -s {}'.",
-                  snapshot,snapshot);
+    } else if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot)).try_exists()? {
+        return Err(Error::new(ErrorKind::Unsupported,
+                              format!("Snapshot {} appears to be in use. If you're certain it's not in use, clear lock with 'dsnap unlock -s {}'.",
+                                      snapshot, snapshot)));
 
         // Make sure snapshot is not base snapshot
-        } else if snapshot == "0" {
-        eprintln!("Changing base snapshot is not allowed.");
-
-    } else {
-        sync_time()?;
-        prepare(snapshot)?;
-        let excode = refresh_helper(snapshot);
-        if excode.is_ok() {
-            post_transactions(snapshot)?;
-            println!("Snapshot {} refreshed successfully.", snapshot);
-        } else {
-            chr_delete(snapshot)?;
-            eprintln!("Refresh failed and changes discarded.")
-        }
+    } else if snapshot == "0" {
+        return Err(Error::new(ErrorKind::Unsupported,
+                              "Changing base snapshot is not allowed.".to_string()));
     }
-    Ok(())
+
+    sync_time()?;
+    prepare(snapshot)?;
+    let excode = refresh_helper(snapshot);
+    if excode.is_ok() {
+        post_transactions(snapshot)?;
+        println!("Snapshot {} refreshed successfully.", snapshot);
+        Ok(())
+    } else {
+        chr_delete(snapshot)?;
+        Err(Error::new(ErrorKind::Other,
+                       "Refresh failed and changes discarded.".to_string()))
+    }
 }
 
 // Remove directory contents
