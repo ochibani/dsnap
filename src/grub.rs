@@ -253,7 +253,7 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
             file.write_all(format!("\n\n{}", &gconf).as_bytes())?;
 
             // Add recovery mode
-            if Path::new(&format!("/.snapshots/rootfs/snapshot-{}", rec_tmp)).is_file() {
+            if Path::new(&format!("/.snapshots/rootfs/snapshot-{}", rec_tmp)).try_exists()? {
                 // Remove END of 41_custom
                 let mut contents = String::new();
                 let mut sfile = File::open(&grub_path)?;
