@@ -207,23 +207,31 @@ pub fn fix_package_db(snapshot: &str) -> Result<(), Error> {
             prepare(snapshot)?;
         }
         let mut cmds: Vec<String> = Vec::new();
-        let username = std::env::var_os("SUDO_USER").unwrap();
-        let user = get_user_by_name(&username).unwrap();
+        // When run as real root (no sudo), fall back to root instead of panicking
+        let username = std::env::var_os("SUDO_USER")
+                                .unwrap_or_else(|| std::ffi::OsString::from("root"));
+        let user = get_user_by_name(&username).ok_or_else(|| Error::new(ErrorKind::Other,
+                              "Failed to resolve user for package database repair."))?;
         let home_dir = user.home_dir();
-        let home = home_dir.to_str().unwrap();
+        let home = home_dir.to_str().ok_or_else(|| Error::new(ErrorKind::Other,
+                              "User home directory is not valid UTF-8."))?.to_string();
         if run_chroot {
-            let etc_gnupg = format!("/.snapshots/rootfs/snapshot-chr{}/etc/pacman.d/gnupg", snapshot);
+            let chroot = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
+            let etc_gnupg = format!("{}/etc/pacman.d/gnupg", chroot);
             if Path::new(&etc_gnupg).try_exists()? && read_dir(&etc_gnupg)?.count() > 0 {
                 cmds.push(format!("rm -rf /etc/pacman.d/gnupg"));
             }
-            if Path::new(&format!("{}/.gnupg", home)).try_exists()? && read_dir(&format!("{}/.gnupg", home))?.count() > 0 {
-                cmds.push(format!("rm -rf {}/.gnupg", home));
+            // In the chroot, run as root and use root's gnupg, not the invoking user's home
+            let chroot_gnupg = format!("{}/root/.gnupg", chroot);
+            if Path::new(&chroot_gnupg).try_exists()? && read_dir(&chroot_gnupg)?.count() > 0 {
+                cmds.push(format!("rm -rf /root/.gnupg"));
             }
-            if Path::new("/var/lib/pacman/sync").try_exists()? && read_dir("/var/lib/pacman/sync")?.count() > 0 {
+            let sync_dir = format!("{}/var/lib/pacman/sync", chroot);
+            if Path::new(&sync_dir).try_exists()? && read_dir(&sync_dir)?.count() > 0 {
                 cmds.push(format!("rm -r /var/lib/pacman/sync/*"));
             }
             cmds.push(format!("pacman -Syy"));
-            cmds.push(format!("sudo -u {} gpg --refresh-keys", username.to_str().unwrap()));
+            cmds.push(format!("gpg --refresh-keys"));
             cmds.push(format!("pacman-key --init"));
             cmds.push(format!("pacman-key --populate archlinux"));
             cmds.push(format!("pacman -Syvv --noconfirm archlinux-keyring"));
