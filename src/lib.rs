@@ -2355,92 +2355,65 @@ pub fn install_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: &s
     if !live {
         // Install profile
         if !profile.is_empty() {
-            let excode = install_profile(snapshot, profile, force, secondary, user_profile, noconfirm);
-            match excode {
-                Ok(secondary) => {
-                    if post_transactions(snapshot).is_ok() {
-                        println!("Profile {} installed in snapshot {} successfully.", p,snapshot);
-                        if yes_no(
-                            &format!
-                                ("Would you like to proceed with the deployment of snapshot {}?", snapshot)) {
-                            if deploy(snapshot, secondary, false).is_ok() {
-                                println!("Snapshot {} deployed to '/'.", snapshot);
-                            }
-                        }
-                    } else {
-                        chr_delete(snapshot)?;
-                        eprintln!("Install failed and changes discarded!");
+            let secondary = install_profile(snapshot, profile, force, secondary, user_profile, noconfirm)?;
+            if post_transactions(snapshot).is_ok() {
+                println!("Profile {} installed in snapshot {} successfully.", p, snapshot);
+                if yes_no(
+                    &format!
+                        ("Would you like to proceed with the deployment of snapshot {}?", snapshot)) {
+                    if deploy(snapshot, secondary, false).is_ok() {
+                        println!("Snapshot {} deployed to '/'.", snapshot);
                     }
-                },
-                Err(e) => {
-                    eprintln!("{}",e);
-                    chr_delete(snapshot)?;
-                    eprintln!("Install failed and changes discarded!");
-                },
+                }
+            } else {
+                let _ = chr_delete(snapshot);
+                return Err(Error::new(ErrorKind::Other,
+                                      "Install failed and changes discarded.".to_string()));
             }
 
         } else if !pkgs.is_empty() {
             // Install package
-            let excode = install(snapshot, &pkgs, noconfirm);
-            match excode {
-                Ok(_) => println!("Package(s) {pkgs:?} installed in snapshot {} successfully.", snapshot),
-                Err(e) => eprintln!("{}", e),
-            }
+            install(snapshot, &pkgs, noconfirm)?;
+            println!("Package(s) {pkgs:?} installed in snapshot {} successfully.", snapshot);
 
         } else if !user_profile.is_empty() {
             // Install user_profile
-            let excode = install_profile(snapshot, profile, force, secondary, user_profile, noconfirm);
-            match excode {
-                Ok(secondary) => {
-                    if post_transactions(snapshot).is_ok() {
-                        println!("Profile {} installed in snapshot {} successfully.", p,snapshot);
-                        if yes_no(&format!("Would you like to proceed with the deployment of snapshot {}?", snapshot)) {
-                            if deploy(snapshot, secondary, false).is_ok() {
-                                println!("Snapshot {} deployed to '/'.", snapshot);
-                            }
-                        }
-                    } else {
-                        chr_delete(snapshot)?;
-                        eprintln!("Install failed and changes discarded!");
+            let secondary = install_profile(snapshot, profile, force, secondary, user_profile, noconfirm)?;
+            if post_transactions(snapshot).is_ok() {
+                println!("Profile {} installed in snapshot {} successfully.", p, snapshot);
+                if yes_no(&format!("Would you like to proceed with the deployment of snapshot {}?", snapshot)) {
+                    if deploy(snapshot, secondary, false).is_ok() {
+                        println!("Snapshot {} deployed to '/'.", snapshot);
                     }
-                },
-                Err(e) => {
-                    eprintln!("{}",e);
-                    chr_delete(snapshot)?;
-                    eprintln!("Install failed and changes discarded!");
-                },
+                }
+            } else {
+                let _ = chr_delete(snapshot);
+                return Err(Error::new(ErrorKind::Other,
+                                      "Install failed and changes discarded.".to_string()));
             }
         }
 
     } else if live && snapshot != get_current_snapshot() {
         // Prevent live option if snapshot is not current snapshot
-        eprintln!("Can't use the live option with any other snapshot than the current one.");
+        return Err(Error::new(ErrorKind::Unsupported,
+                              "Can't use the live option with any other snapshot than the current one.".to_string()));
 
     // Do live install only if: live flag is used OR target snapshot is current
     } else if live && snapshot == get_current_snapshot() {
         if !profile.is_empty() {
             // Live profile installation
-            let excode = install_profile_live(snapshot, profile, force, user_profile, noconfirm);
-            match excode {
-                Ok(_) => println!("Profile {} installed in current/live snapshot.", p),
-                Err(e) => eprintln!("{}", e),
-            }
+            install_profile_live(snapshot, profile, force, user_profile, noconfirm)?;
+            println!("Profile {} installed in current/live snapshot.", p);
 
         } else if !pkgs.is_empty() {
             // Live package installation
-            let excode = install_live(&pkgs, noconfirm);
-            match excode {
-                Ok(_) => println!("Package(s) {pkgs:?} installed in snapshot {} successfully.", snapshot),
-                Err(e) => eprintln!("{}", e),
-            }
+            install_live(&pkgs, noconfirm)?;
+            println!("Package(s) {pkgs:?} installed in snapshot {} successfully.", snapshot);
 
         } else if !user_profile.is_empty() {
             // Live user_profile installation
-            let excode = install_profile_live(snapshot, profile, force, user_profile, noconfirm);
-            match excode {
-                Ok(_) => println!("Profile {} installed in current/live snapshot.", p),
-                Err(e) => eprintln!("{}", e),
-            }
+            install_profile_live(snapshot, profile, force, user_profile, noconfirm)?;
+            println!("Profile {} installed in current/live snapshot.", p);
         }
     }
     Ok(())
@@ -4246,21 +4219,13 @@ pub fn uninstall_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: 
     if !live {
         // Uninstall profile
         if !profile.is_empty() {
-            let excode = uninstall_profile(snapshot, profile, user_profile, noconfirm);
-            match excode {
-                Ok(_) => {
-                    if post_transactions(snapshot).is_ok() {
-                        println!("Profile {} removed from snapshot {} successfully.", p,snapshot);
-                    } else {
-                        chr_delete(snapshot)?;
-                        eprintln!("Uninstall failed and changes discarded!");
-                    }
-                },
-                Err(e) => {
-                    eprintln!("{}",e);
-                    chr_delete(snapshot)?;
-                    eprintln!("Uninstall failed and changes discarded!");
-                },
+            uninstall_profile(snapshot, profile, user_profile, noconfirm)?;
+            if post_transactions(snapshot).is_ok() {
+                println!("Profile {} removed from snapshot {} successfully.", p, snapshot);
+            } else {
+                let _ = chr_delete(snapshot);
+                return Err(Error::new(ErrorKind::Other,
+                                      "Uninstall failed and changes discarded.".to_string()));
             }
 
         } else if !pkgs.is_empty() {
@@ -4269,53 +4234,37 @@ pub fn uninstall_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: 
 
         } else if !user_profile.is_empty() {
             // Uninstall user_profile
-            let excode = uninstall_profile(snapshot, profile, user_profile, noconfirm);
-            match excode {
-                Ok(_) => {
-                    if post_transactions(snapshot).is_ok() {
-                        println!("Profile {} removed from snapshot {} successfully.", p,snapshot);
-                    } else {
-                        chr_delete(snapshot)?;
-                        eprintln!("Uninstall failed and changes discarded!");
-                    }
-                },
-                Err(e) => {
-                    eprintln!("{}",e);
-                    chr_delete(snapshot)?;
-                    eprintln!("Uninstall failed and changes discarded!");
-                },
+            uninstall_profile(snapshot, profile, user_profile, noconfirm)?;
+            if post_transactions(snapshot).is_ok() {
+                println!("Profile {} removed from snapshot {} successfully.", p, snapshot);
+            } else {
+                let _ = chr_delete(snapshot);
+                return Err(Error::new(ErrorKind::Other,
+                                      "Uninstall failed and changes discarded.".to_string()));
             }
         }
 
     } else if live && snapshot != get_current_snapshot() {
         // Prevent live Uninstall except for current snapshot
-        eprintln!("Can't use the live option with any other snapshot than the current one.");
+        return Err(Error::new(ErrorKind::Unsupported,
+                              "Can't use the live option with any other snapshot than the current one.".to_string()));
 
     // Do live uninstall only if: live flag is used OR target snapshot is current
     } else if live && snapshot == get_current_snapshot() {
         if !profile.is_empty() {
             // Live profile uninstall
-            let excode = uninstall_profile_live(snapshot, profile, user_profile, noconfirm);
-            match excode {
-                Ok(_) => println!("Profile {} removed from current/live snapshot.", p),
-                Err(e) => eprintln!("{}", e),
-            }
+            uninstall_profile_live(snapshot, profile, user_profile, noconfirm)?;
+            println!("Profile {} removed from current/live snapshot.", p);
 
         } else if !pkgs.is_empty() {
             // Live package uninstall
-            let excode = uninstall_live(&pkgs, noconfirm);
-            match excode {
-                Ok(_) => println!("Package(s) {pkgs:?} removed from snapshot {} successfully.", snapshot),
-                Err(e) => eprintln!("{}", e),
-            }
+            uninstall_live(&pkgs, noconfirm)?;
+            println!("Package(s) {pkgs:?} removed from snapshot {} successfully.", snapshot);
 
         } else if !user_profile.is_empty() {
             // Live user_profile uninstall
-            let excode = uninstall_profile_live(snapshot, profile, user_profile, noconfirm);
-            match excode {
-                Ok(_) => println!("Profile {} removed from current/live snapshot.", p),
-                Err(e) => eprintln!("{}", e),
-            }
+            uninstall_profile_live(snapshot, profile, user_profile, noconfirm)?;
+            println!("Profile {} removed from current/live snapshot.", p);
         }
     }
     Ok(())
