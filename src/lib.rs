@@ -1486,26 +1486,29 @@ fn get_import_snapshot_name(path: &str) -> Option<String> {
 // Get deployed snapshot
 pub fn get_next_snapshot() -> String {
     let tmp = get_tmp();
-    let file = File::open("/.snapshots/dsnap/deploy-tmp").unwrap();
+    let Ok(file) = File::open("/.snapshots/dsnap/deploy-tmp") else {
+        return "".to_string();
+    };
     let mut d = String::new();
     let reader = BufReader::new(file);
     for line in reader.lines() {
-        let line = line.unwrap();
+        let Ok(line) = line else {
+            continue;
+        };
         if line != tmp {
             d.push_str(&line);
             break;
         }
     }
+    if d.is_empty() {
+        return "".to_string();
+    }
 
     // Make sure next snapshot exists
-    if Path::new(&format!("/.snapshots/rootfs/snapshot-{}/usr/share/dsnap/snap", d)).is_file() {
-        let mut file = File::open(format!("/.snapshots/rootfs/snapshot-{}/usr/share/dsnap/snap", d)).unwrap();
-        let mut contents = String::new();
-        file.read_to_string(&mut contents).unwrap();
-        return contents.to_string().trim().to_string();
-    } else {
-        // Return empty string in case no snapshot is deployed
-        return "".to_string()
+    let snap_path = format!("/.snapshots/rootfs/snapshot-{}/usr/share/dsnap/snap", d);
+    match read_to_string(&snap_path) {
+        Ok(contents) => contents.trim().to_string(),
+        Err(_) => "".to_string(),
     }
 }
 
@@ -1553,38 +1556,30 @@ pub fn get_recovery_tmp() -> String {
 // Get tmp partition state
 pub fn get_tmp() -> String {
     // By default just return which deployment is running
-    let file = File::open("/proc/mounts").unwrap();
-    let reader = BufReader::new(file);
-    let mount: Vec<String> = reader.lines().filter_map(|line| {
-        let line = line.unwrap();
-        #[cfg(feature = "btrfs")]
-        if line.contains(" / btrfs") {
-            Some(line)
-        } else {
-            None
-        }
-    })
-    .collect();
+    let mounts = read_to_string("/proc/mounts").unwrap_or_default();
+    let mount: Vec<&str> = mounts
+        .lines()
+        .filter(|line| {
+            #[cfg(feature = "btrfs")]
+            { line.contains(" / btrfs") }
+            #[cfg(not(feature = "btrfs"))]
+            { let _ = line; false }
+        })
+        .collect();
     // Check recovery deployments first so they are not mistaken for
     // regular deploy slots by substring matches
     if mount.iter().any(|element| element.contains("recovery-deploy-aux")) {
-        let r = String::from("recovery-deploy-aux");
-        return r;
+        "recovery-deploy-aux".to_string()
     } else if mount.iter().any(|element| element.contains("recovery-deploy")) {
-        let r = String::from("recovery-deploy");
-        return r;
+        "recovery-deploy".to_string()
     } else if mount.iter().any(|element| element.contains("deploy-aux-secondary")) {
-        let r = String::from("deploy-aux-secondary");
-        return r;
+        "deploy-aux-secondary".to_string()
     } else if mount.iter().any(|element| element.contains("deploy-secondary")) {
-        let r = String::from("deploy-secondary");
-        return r;
+        "deploy-secondary".to_string()
     } else if mount.iter().any(|element| element.contains("deploy-aux")) {
-        let r = String::from("deploy-aux");
-        return r;
+        "deploy-aux".to_string()
     } else {
-        let r = String::from("deploy");
-        return r;
+        "deploy".to_string()
     }
 }
 
