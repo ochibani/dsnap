@@ -3379,29 +3379,33 @@ pub fn snapshot_config_edit(snapshot: &str) -> Result<(), Error> {
 pub fn snapshot_config_get(snapshot: &str) -> HashMap<String, String> {
     let mut options = HashMap::new();
 
-    if !Path::new(&format!("/.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot)).is_file() {
-        // Defaults here
-        #[cfg(feature = "pacman")]
-        options.insert(String::from("aur"), String::from("False"));
-        options.insert(String::from("mutable_dirs"), String::new());
-        options.insert(String::from("mutable_dirs_shared"), String::from("var"));
-        return options;
-    } else {
-        let optfile = File::open(format!("/.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot)).unwrap();
-        let reader = BufReader::new(optfile);
+    // Defaults here
+    #[cfg(feature = "pacman")]
+    options.insert(String::from("aur"), String::from("False"));
+    options.insert(String::from("mutable_dirs"), String::new());
+    options.insert(String::from("mutable_dirs_shared"), String::from("var"));
 
-        for line in reader.lines() {
-            let mut line = line.unwrap();
-            // Skip line if there's no option set
-            if comment_after_hash(&mut line).contains("::") {
-                // Split options with '::'
-                let (left, right) = line.split_once("::").unwrap();
-                // Remove newline here
-                options.insert(left.to_string(), right.trim_end().to_string().split("#").next().unwrap().to_string());
+    let path = format!("/.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot);
+    let Ok(optfile) = File::open(&path) else {
+        return options;
+    };
+    let reader = BufReader::new(optfile);
+
+    for line in reader.lines() {
+        let Ok(mut line) = line else {
+            continue;
+        };
+        // Skip line if there's no option set
+        if comment_after_hash(&mut line).contains("::") {
+            if let Some((left, right)) = line.split_once("::") {
+                // Remove inline comments and trailing whitespace/newline
+                let mut value = right.trim_end().to_string();
+                value = comment_after_hash(&mut value).trim_end().to_string();
+                options.insert(left.to_string(), value);
             }
         }
-        return options;
     }
+    options
 }
 
 // Show diff of packages between 2 snapshots
