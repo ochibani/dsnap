@@ -560,6 +560,11 @@ pub fn chroot(snapshot: &str, cmds: Vec<String>) -> Result<(), Error> {
                                     chr_delete(snapshot)?;
                                 }
                             }
+                        } else {
+                            // Clean chroot and unlock snapshot
+                            chr_delete(snapshot)?;
+                            return Err(Error::new(ErrorKind::Other,
+                                                  format!("Profile check failed and changes discarded.")));
                         }
                     } else {
                         // Exit chroot and unlock snapshot
@@ -587,6 +592,11 @@ pub fn chroot(snapshot: &str, cmds: Vec<String>) -> Result<(), Error> {
 
                         }
                     }
+                } else {
+                    // Clean chroot and unlock snapshot
+                    chr_delete(snapshot)?;
+                    return Err(Error::new(ErrorKind::Other,
+                                          format!("Profile check failed and changes discarded.")));
                 }
             } else {
                 // Unlock snapshot
