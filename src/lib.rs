@@ -257,7 +257,8 @@ pub fn branch_create(snapshot: &str, desc: &str) -> Result<i32, Error> {
 // Check if snapshot is mutable
 pub fn check_mutability(snapshot: &str) -> bool {
     Path::new(&format!("/.snapshots/rootfs/snapshot-{}/usr/share/dsnap/mutable", snapshot))
-        .try_exists().unwrap()
+        .try_exists()
+        .unwrap_or(false)
 }
 
 // Check if snapshot profile was changed
@@ -480,15 +481,16 @@ pub fn check_update() -> Result<(), Error> {
     let mut read = buf_read.lines();
 
     // Read state line
-    let line = read.next().unwrap()?;
+    let line = read.next()
+        .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Update state file is missing state."))??;
     // Read data line
-    let data = read.next().unwrap()?;
+    let data = read.next()
+        .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Update state file is missing date."))??;
 
     // Check state line
     if line.contains("1") {
         eprintln!("Last update on {} failed.", data);
-    }
-    if line.contains("0") {
+    } else if line.contains("0") {
         println!("Last update on {} completed successfully.", data);
     }
     Ok(())
