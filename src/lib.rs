@@ -2236,8 +2236,10 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
             for service in profconf.get_map().unwrap().get("disable-services").unwrap().keys() {
                 services.push(service.to_string());
             }
-            // Disable service(s)
-            service_disable(snapshot, &services, "chr")?;
+            // Disable service(s) in the live snapshot; the "chr" mode
+            // targets snapshot-chr{snapshot} which is not created by the
+            // live flow
+            service_disable(&tmp, &services, "")?;
         }
 
         // Read enable services section in configuration file
@@ -2246,8 +2248,8 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
             for service in profconf.get_map().unwrap().get("enable-services").unwrap().keys() {
                 services.push(service.to_string());
             }
-            // Enable service(s)
-            service_enable(snapshot, &services, "chr")?;
+            // Enable service(s) in the live snapshot
+            service_enable(&tmp, &services, "")?;
         }
 
         // Read commands section in configuration file
