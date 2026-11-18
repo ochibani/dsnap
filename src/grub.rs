@@ -131,9 +131,16 @@ pub fn switch_recovery_tmp(snapshot: &str, target_snapshot: &str) -> Result<(), 
     nfile.write_all(modified_grub_contents.as_bytes())?;
 
     // Change recovery tmp
-    let first_quote_index = gconf.find('\'').unwrap_or(0);
-    let second_quote_index = gconf[first_quote_index + 1..].find('\'').unwrap_or(gconf.len()) + first_quote_index + 1;
-    let updated_line = gconf.replace(&gconf[first_quote_index + 1..second_quote_index], "Recovery Snapshot");
+    let updated_line = if let Some(first_quote_index) = gconf.find('\'') {
+        if let Some(rel) = gconf[first_quote_index + 1..].find('\'') {
+            let second_quote_index = rel + first_quote_index + 1;
+            gconf.replace(&gconf[first_quote_index + 1..second_quote_index], "Recovery Snapshot")
+        } else {
+            gconf.clone()
+        }
+    } else {
+        gconf.clone()
+    };
     let modified_cfg_contents = if updated_line.contains(&source_dep) {
         updated_line.replace(&format!("@.snapshots_linux/rootfs/snapshot-{}", source_dep),
                              &format!("@.snapshots_linux/rootfs/snapshot-{}", target_dep))
@@ -262,9 +269,16 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
                 let mut nfile = File::create(&grub_path)?;
                 nfile.write_all(modified_grub_contents.as_bytes())?;
 
-                let first_quote_index = gconf.find('\'').unwrap_or(0);
-                let second_quote_index = gconf[first_quote_index + 1..].find('\'').unwrap_or(gconf.len()) + first_quote_index + 1;
-                let updated_line = gconf.replace(&gconf[first_quote_index + 1..second_quote_index], "Recovery Snapshot");
+                let updated_line = if let Some(first_quote_index) = gconf.find('\'') {
+                    if let Some(rel) = gconf[first_quote_index + 1..].find('\'') {
+                        let second_quote_index = rel + first_quote_index + 1;
+                        gconf.replace(&gconf[first_quote_index + 1..second_quote_index], "Recovery Snapshot")
+                    } else {
+                        gconf.clone()
+                    }
+                } else {
+                    gconf.clone()
+                };
 
                 // Change recovery tmp
                 let gconf = updated_line.replace(&format!("@.snapshots_linux/rootfs/snapshot-{}", source_dep),
