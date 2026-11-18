@@ -2297,7 +2297,7 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
         // Read commands section in configuration file
         if profconf.sections().contains(&"install-commands".to_string()) {
             for cmd in profconf.get_map().unwrap().get("install-commands").unwrap().keys() {
-                chroot_exec(&format!("/.snapshots/rootfs/snapshot-{}", snapshot), cmd)?;
+                chroot_exec(&format!("/.snapshots/rootfs/snapshot-{}", tmp), cmd)?;
             }
         }
 
@@ -4119,7 +4119,7 @@ fn uninstall_profile_live(snapshot: &str,profile: &str, user_profile: &str, noco
     // Read commands section in configuration file
     if profconf.sections().contains(&"uninstall-commands".to_string()) {
         for cmd in profconf.get_map().unwrap().get("uninstall-commands").unwrap().keys() {
-            chroot_exec(&format!("/.snapshots/rootfs/snapshot-{}", snapshot), cmd)?;
+            chroot_exec(&format!("/.snapshots/rootfs/snapshot-{}", tmp), cmd)?;
         }
     }
 
