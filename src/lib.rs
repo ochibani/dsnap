@@ -516,6 +516,10 @@ pub fn chr_delete(snapshot: &str) -> Result<(), Error> {
     if Path::new(&snapshot_path).try_exists()? {
         // Try to remove directory contents if delete subvolume failed
         if delete_subvolume(&snapshot_path).is_err() {
+            if path_is_mounted_or_under(Path::new(&snapshot_path))? {
+                return Err(Error::new(ErrorKind::Other,
+                                      format!("Cannot remove {} because it is still mounted.", snapshot_path)));
+            }
             remove_dir_content(&snapshot_path)?;
             delete_subvolume(&snapshot_path)?;
         }
@@ -2447,6 +2451,22 @@ fn is_mounted(path: &Path) -> bool {
         }
     }
     false
+}
+
+// Check if path or anything under it is mounted
+fn path_is_mounted_or_under(path: &Path) -> Result<bool, Error> {
+    let mount_iter = MountIter::new().map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+    let p = path.as_os_str().to_string_lossy();
+    let p = p.trim_end_matches('/');
+    for mount in mount_iter {
+        let mount = mount.map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+        let d = mount.dest.as_os_str().to_string_lossy();
+        let d = d.trim_end_matches('/');
+        if d == p || d.starts_with(&format!("{}/", p)) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 // Return if package installed in snapshot
