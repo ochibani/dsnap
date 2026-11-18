@@ -212,20 +212,18 @@ pub fn install_package_helper_chroot(snapshot:&str, pkgs: &Vec<String>, noconfir
     };
 
     // APT update
-    let apt_update = "apt-get update";
     let apt_update = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,apt_update))
+                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} apt-get update", snapshot))
                                        .status()?;
+    if !apt_update.success() {
+        return Err(Error::new(ErrorKind::Other,
+                              "Failed to run apt-get update"));
+    }
 
     // APT install
     let apt_install = Command::new("sh").arg("-c")
                                         .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,install_args))
                                         .status()?;
-
-    if !apt_update.success() {
-        return Err(Error::new(ErrorKind::Other,
-                              "Failed to run apt-get update"));
-    }
     if !apt_install.success() {
         return Err(Error::new(ErrorKind::Other,
                               "Failed to install package(s)."));
@@ -655,18 +653,19 @@ pub fn uninstall_package_helper_live(tmp: &str, pkgs: &Vec<String>, noconfirm: b
 // Upgrade snapshot atomic-operation
 pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
     // Prepare snapshot
-    prepare(snapshot).unwrap();
+    prepare(snapshot)?;
 
     let upgrade_args = if noconfirm {
-        "apt-get -y upgrade"
+        // Avoid interactive conffile prompts during noninteractive upgrades
+        std::env::set_var("DEBIAN_FRONTEND", "noninteractive");
+        "DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade"
     } else {
         "apt-get upgrade"
     };
 
     // Run apt update
-    let apt_update = "apt-get update";
     let apt_update = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,apt_update))
+                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} apt-get update", snapshot))
                                        .status()?;
     if !apt_update.success() {
         return Err(Error::new(ErrorKind::Other,
@@ -676,7 +675,7 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
     // Run apt upgrade
     let apt_upgrade = Command::new("sh").arg("-c")
                                         .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,upgrade_args))
-                                        .status().unwrap();
+                                        .status()?;
     if !apt_upgrade.success() {
         return Err(Error::new(ErrorKind::Other,
                               format!("Failed to upgrade snapshot {}.", snapshot)));
@@ -687,15 +686,16 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
 // Live upgrade snapshot atomic-operation
 pub fn upgrade_helper_live(tmp: &str, noconfirm: bool) -> Result<(), Error> {
     let upgrade_args = if noconfirm {
-        "apt-get -y upgrade"
+        // Avoid interactive conffile prompts during noninteractive upgrades
+        std::env::set_var("DEBIAN_FRONTEND", "noninteractive");
+        "DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade"
     } else {
         "apt-get upgrade"
     };
 
     // Run apt update
-    let apt_update = "apt-get update";
     let apt_update = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-{} {}",tmp,apt_update))
+                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-{} apt-get update", tmp))
                                        .status()?;
     if !apt_update.success() {
         return Err(Error::new(ErrorKind::Other,
@@ -705,7 +705,7 @@ pub fn upgrade_helper_live(tmp: &str, noconfirm: bool) -> Result<(), Error> {
     // Run apt upgrade
     let excode = Command::new("sh").arg("-c")
                                    .arg(format!("chroot /.snapshots/rootfs/snapshot-{} {}", tmp,upgrade_args))
-                                   .status().unwrap();
+                                   .status()?;
     if !excode.success() {
         return Err(Error::new(ErrorKind::Other,
                               "Failed to upgrade current/live snapshot."));

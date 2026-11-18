@@ -270,7 +270,7 @@ pub fn fix_package_db(snapshot: &str) -> Result<(), Error> {
         if snapshot.is_empty() {
             let snapshot = get_current_snapshot();
             prepare(&snapshot)?;
-            refresh_helper(&snapshot).expect("Refresh failed.");
+            refresh_helper(&snapshot)?;
         }
 
         // Return snapshot to immutable after fixdb is done if snapshot was immutable
@@ -418,13 +418,17 @@ pub fn install_package_helper_chroot(snapshot:&str, pkgs: &Vec<String>, noconfir
 // Install atomic-operation in live snapshot
 pub fn install_package_helper_live(snapshot: &str, tmp: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
     for pkg in pkgs {
-        // This extra pacman check is to avoid unwantedly triggering AUR if package is official
-        let excode = Command::new("pacman").arg("-Si")
-                                           .arg(format!("{}", pkg))
-                                           .output()?; // --sysroot
-        let excode_group = Command::new("pacman").arg("-Sg")
-                                                 .arg(format!("{}", pkg))
-                                                 .output()?;
+        // This extra pacman check is to avoid unwantedly triggering AUR
+        // if package is official; probe inside the target snapshot so the
+        // decision matches the chroot's package database
+        let excode = Command::new("chroot")
+                              .arg(format!("/.snapshots/rootfs/snapshot-{}", tmp))
+                              .args(["pacman", "-Si", pkg])
+                              .output()?;
+        let excode_group = Command::new("chroot")
+                                    .arg(format!("/.snapshots/rootfs/snapshot-{}", tmp))
+                                    .args(["pacman", "-Sg", pkg])
+                                    .output()?;
         if excode.status.success() || excode_group.status.success() {
             let pacman_args = if noconfirm {
                 format!("pacman -Sy --noconfirm --overwrite '*' {}", pkg)

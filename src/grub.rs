@@ -16,9 +16,17 @@ pub fn delete_old_grub_files(grub: &str) -> Result<(), Error> {
     for entry in WalkDir::new(bak_path) {
         let entry = entry?;
         let path = entry.path();
-        if path.is_file() && path.to_str().unwrap().contains("grub.cfg") {
-            let file_ext = path.extension().unwrap().to_str().unwrap();
-            let file_create_time = NaiveDateTime::parse_from_str(file_ext, "%Y%m%d-%H%M%S").unwrap();
+        if path.is_file() && path.to_str().unwrap_or("").contains("grub.cfg") {
+            // BAK files are named grub.cfg.YYYYmmdd-HHMMSS; skip anything
+            // that does not carry a parseable timestamp extension
+            let file_ext = match path.extension().and_then(|e| e.to_str()) {
+                Some(ext) => ext,
+                None => continue,
+            };
+            let file_create_time = match NaiveDateTime::parse_from_str(file_ext, "%Y%m%d-%H%M%S") {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
             let cutoff_time = Local::now().naive_local().signed_duration_since(file_create_time);
             if cutoff_time.num_days() >= 30 {
                 std::fs::remove_file(path)?;
@@ -141,16 +149,25 @@ pub fn switch_recovery_tmp(snapshot: &str, target_snapshot: &str) -> Result<(), 
     } else {
         gconf.clone()
     };
-    let modified_cfg_contents = if updated_line.contains(&source_dep) {
+    // Replace the full snapshot token. "recovery-deploy" is a substring
+    // of "recovery-deploy-aux", so prefer the longer/more specific match
+    // to avoid producing "snapshot-recovery-deploy-aux-aux"
+    let modified_cfg_contents = if updated_line.contains(&format!("@.snapshots_linux/rootfs/snapshot-recovery-deploy-aux")) {
+        updated_line.replace("@.snapshots_linux/rootfs/snapshot-recovery-deploy-aux",
+                             &format!("@.snapshots_linux/rootfs/snapshot-{}", target_dep))
+    } else if updated_line.contains(&format!("@.snapshots_linux/rootfs/snapshot-recovery-deploy")) {
+        updated_line.replace("@.snapshots_linux/rootfs/snapshot-recovery-deploy",
+                             &format!("@.snapshots_linux/rootfs/snapshot-{}", target_dep))
+    } else if updated_line.contains(&format!("@.snapshots_linux/rootfs/snapshot-{}", source_dep)) {
         updated_line.replace(&format!("@.snapshots_linux/rootfs/snapshot-{}", source_dep),
                              &format!("@.snapshots_linux/rootfs/snapshot-{}", target_dep))
     } else {
-        let src_tmp = if updated_line.contains("deploy-aux") && !updated_line.contains("secondary") {
-            "deploy-aux"
-        } else if updated_line.contains("secondary") && !updated_line.contains("aux") {
-            "deploy-secondary"
-        } else if updated_line.contains("aux-secondary") {
+        let src_tmp = if updated_line.contains("deploy-aux-secondary") {
             "deploy-aux-secondary"
+        } else if updated_line.contains("deploy-aux") && !updated_line.contains("secondary") {
+            "deploy-aux"
+        } else if updated_line.contains("deploy-secondary") {
+            "deploy-secondary"
         } else {
             "deploy"
         };
