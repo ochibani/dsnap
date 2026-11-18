@@ -455,6 +455,12 @@ pub fn install_package_helper_live(snapshot: &str, tmp: &str, pkgs: &Vec<String>
                 return Err(Error::new(ErrorKind::Other,
                                       format!("Failed to install {}", pkg)));
             }
+        } else if !aur_check(snapshot) {
+            // Not an official package and AUR is not enabled: report the
+            // same error as the non-live helper instead of silently
+            // succeeding
+            return Err(Error::new(ErrorKind::NotFound,
+                                  "Please enable AUR."));
         }
     }
     Ok(())
