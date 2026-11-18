@@ -119,14 +119,14 @@ pub fn dsnap_mounts(i: &str, chr: &str) -> nix::Result<()> {
     }
 
     // Mount /etc/resolv.conf
-    if Path::new(&format!("{}/etc/resolv.conf", snapshot_path)).try_exists().unwrap() {
+    if Path::new(&format!("{}/etc/resolv.conf", snapshot_path)).try_exists().map_err(|e| nix::errno::Errno::from_i32(e.raw_os_error().unwrap_or(5)))? {
         mount(Some("/etc/resolv.conf"), format!("{}/etc/resolv.conf", snapshot_path).as_str(),
               Some(file_system), MsFlags::MS_BIND | MsFlags::MS_SLAVE, None::<&str>)?;
     } else {
         // Fedora links file to /run/systemd/resolve/stub-resolv.conf
         DirBuilder::new().recursive(true)
-                         .create(format!("{}/run/systemd/resolve", snapshot_path)).unwrap();
-        File::create(format!("{}/run/systemd/resolve/stub-resolv.conf", snapshot_path)).unwrap();
+                         .create(format!("{}/run/systemd/resolve", snapshot_path)).map_err(|e| nix::errno::Errno::from_i32(e.raw_os_error().unwrap_or(5)))?;
+        File::create(format!("{}/run/systemd/resolve/stub-resolv.conf", snapshot_path)).map_err(|e| nix::errno::Errno::from_i32(e.raw_os_error().unwrap_or(5)))?;
         mount(Some("/etc/resolv.conf"), format!("{}/run/systemd/resolve/stub-resolv.conf", snapshot_path).as_str(),
               Some(file_system), MsFlags::MS_BIND | MsFlags::MS_SLAVE, None::<&str>)?;
     }
@@ -140,7 +140,7 @@ pub fn dsnap_umounts(i: &str, chr: &str) -> nix::Result<()> {
 
     // Umount in reverse order
     // Umount /etc/resolv.conf
-    if Path::new(&format!("{}/etc/resolv.conf", snapshot_path)).try_exists().unwrap() {
+    if Path::new(&format!("{}/etc/resolv.conf", snapshot_path)).try_exists().map_err(|e| nix::errno::Errno::from_i32(e.raw_os_error().unwrap_or(5)))? {
         umount2(Path::new(&format!("{}/etc/resolv.conf", snapshot_path)),
                 MntFlags::empty())?;
     } else {
@@ -597,13 +597,16 @@ pub fn chroot(snapshot: &str, cmds: Vec<String>) -> Result<(), Error> {
 }
 
 // Check if inside chroot
-pub fn chroot_check() -> bool {
-    let read = read_to_string("/proc/mounts").unwrap();
+pub fn chroot_check() -> Result<bool, Error> {
+    let read = read_to_string("/proc/mounts")?;
     #[cfg(feature = "btrfs")]
-    if read.contains("/.snapshots btrfs") {
-        return false;
-    } else {
-        return true;
+    {
+        Ok(!read.contains("/.snapshots btrfs"))
+    }
+    #[cfg(not(feature = "btrfs"))]
+    {
+        let _ = read;
+        Ok(false)
     }
 }
 

@@ -46,9 +46,11 @@ use grub::update_boot;
 fn main() {
     if !Uid::effective().is_root() {
         eprintln!("sudo/doas is required to run dsnap!");
-    } else if chroot_check() {
-        eprintln!("Please don't use dsnap inside a chroot!");
     } else {
+        match chroot_check() {
+            Ok(true) => eprintln!("Please don't use dsnap inside a chroot!"),
+            Err(e) => eprintln!("Failed to determine chroot state: {}", e),
+            Ok(false) => {
         // Call cli matches
         let matches = cli().get_matches();
         // Call relevant functions
@@ -1141,3 +1143,5 @@ fn main() {
         }
     }
 }
+            }
+        }
