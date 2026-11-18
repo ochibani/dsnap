@@ -414,15 +414,10 @@ fn main() {
                 let run = snapshot_profile_edit(&snapshot);
                 match run {
                     Ok(_) => {
-                        if post_transactions(&snapshot).is_ok() {
-                            println!("snapshot {} profile has been successfully updated.", &snapshot)
-                        } else {
-                            chr_delete(&snapshot).unwrap();
-                            eprintln!("Failed to update snapshot {} profile.", &snapshot)
-                        }
+                        println!("snapshot {} profile has been successfully updated.", &snapshot)
                     },
                     Err(e) => {
-                        chr_delete(&snapshot).unwrap();
+                        let _ = chr_delete(&snapshot);
                         eprintln!("{}", e);
                     },
                 }

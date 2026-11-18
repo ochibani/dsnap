@@ -3266,14 +3266,17 @@ pub fn snapshot_base_new(desc: &str) -> Result<i32, Error> {
 pub fn snapshot_config_edit(snapshot: &str) -> Result<(), Error> {
     // Make sure snapshot exist
     if !Path::new(&format!("/.snapshots/rootfs/snapshot-{}", snapshot)).try_exists()? {
-        eprintln!("Cannot chroot as snapshot {} doesn't exist.", snapshot);
+        return Err(Error::new(ErrorKind::NotFound,
+                              format!("Cannot edit configuration as snapshot {} doesn't exist.", snapshot)));
     } else if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot)).try_exists()? {
         // Make sure snapshot is not in use by another dsnap process
-        eprintln!("Snapshot {} appears to be in use. If you're certain it's not in use, clear lock with 'dsnap unlock -s {}'.", snapshot,snapshot)
+        return Err(Error::new(ErrorKind::Unsupported,
+                              format!("Snapshot {} appears to be in use. If you're certain it's not in use, clear lock with 'dsnap unlock -s {}'.", snapshot, snapshot)));
 
     } else if snapshot == "0" {
         // Make sure is not base snapshot
-        eprintln!("Changing base snapshot is not allowed.")
+        return Err(Error::new(ErrorKind::Unsupported,
+                              "Changing base snapshot is not allowed.".to_string()));
 
     } else {
         // Edit dsnap config
@@ -3285,14 +3288,11 @@ pub fn snapshot_config_edit(snapshot: &str) -> Result<(), Error> {
             if !excode.success() {
                 eprintln!("The editor exited with an error; committing the configuration as it is.");
             }
-            // Commit the edit to etc-N and clean up the chroot, otherwise the
-            // edit is silently discarded by the next prepare()
-            post_transactions(snapshot)?;
-            } else {
+        } else {
             // nano available
             if Command::new("sh").arg("-c")
                                  .arg("[ -x \"$(command -v nano)\" ]")
-                                 .status().unwrap().success() {
+                                 .status()?.success() {
                                      Command::new("sh").arg("-c")
                                                        .arg(format!("nano /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/dsnap.conf", snapshot))
                                                        .status()?;
@@ -3300,7 +3300,7 @@ pub fn snapshot_config_edit(snapshot: &str) -> Result<(), Error> {
             // vi available
             else if Command::new("sh").arg("-c")
                                       .arg("[ -x \"$(command -v vi)\" ]")
-                                      .status().unwrap().success() {
+                                      .status()?.success() {
                                           Command::new("sh").arg("-c")
                                                             .arg(format!("vi /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/dsnap.conf", snapshot))
                                                             .status()?;
@@ -3308,7 +3308,7 @@ pub fn snapshot_config_edit(snapshot: &str) -> Result<(), Error> {
             // vim available
             else if Command::new("sh").arg("-c")
                                       .arg("[ -x \"$(command -v vim)\" ]")
-                                      .status().unwrap().success() {
+                                      .status()?.success() {
                                           Command::new("sh").arg("-c")
                                                             .arg(format!("vim /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/dsnap.conf", snapshot))
                                                             .status()?;
@@ -3316,7 +3316,7 @@ pub fn snapshot_config_edit(snapshot: &str) -> Result<(), Error> {
             // neovim
             else if Command::new("sh").arg("-c")
                                       .arg("[ -x \"$(command -v nvim)\" ]")
-                                      .status().unwrap().success() {
+                                      .status()?.success() {
                                           Command::new("sh").arg("-c")
                                                             .arg(format!("nvim /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/dsnap.conf", snapshot))
                                                             .status()?;
@@ -3324,16 +3324,21 @@ pub fn snapshot_config_edit(snapshot: &str) -> Result<(), Error> {
             // micro
             else if Command::new("sh").arg("-c")
                                       .arg("[ -x \"$(command -v micro)\" ]")
-                                      .status().unwrap().success() {
+                                      .status()?.success() {
                                           Command::new("sh").arg("-c")
                                                             .arg(format!("micro /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/dsnap.conf", snapshot))
                                                             .status()?;
                                       }
             else {
-                eprintln!("No text editor available!");
+                chr_delete(snapshot)?;
+                return Err(Error::new(ErrorKind::NotFound,
+                                      "No text editor available!"));
             }
-            post_transactions(snapshot)?;
         }
+
+        // Commit the edit to etc-N and clean up the chroot, otherwise the
+        // edit is silently discarded by the next prepare()
+        post_transactions(snapshot)?;
     }
     Ok(())
 }
@@ -3412,29 +3417,35 @@ pub fn snapshot_diff(snapshot1: &str, snapshot2: &str) -> Result<(), Error> {
 pub fn snapshot_profile_edit(snapshot: &str) -> Result<(), Error> {
     // Make sure snapshot exist
     if !Path::new(&format!("/.snapshots/rootfs/snapshot-{}", snapshot)).try_exists()? {
-        eprintln!("Cannot chroot as snapshot {} doesn't exist.", snapshot);
+        return Err(Error::new(ErrorKind::NotFound,
+                              format!("Cannot edit profile as snapshot {} doesn't exist.", snapshot)));
     } else if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot)).try_exists()? {
         // Make sure snapshot is not in use by another dsnap process
-        eprintln!("Snapshot {} appears to be in use. If you're certain it's not in use, clear lock with 'dsnap unlock -s {}'.", snapshot,snapshot)
+        return Err(Error::new(ErrorKind::Unsupported,
+                              format!("Snapshot {} appears to be in use. If you're certain it's not in use, clear lock with 'dsnap unlock -s {}'.", snapshot, snapshot)));
 
     } else if snapshot == "0" {
         // Make sure is not base snapshot
-        eprintln!("Changing base snapshot is not allowed.")
+        return Err(Error::new(ErrorKind::Unsupported,
+                              "Changing base snapshot is not allowed.".to_string()));
 
     } else {
         // Edit profile
         prepare(snapshot)?;
 
         // Launch editor
-        if std::env::var("EDITOR").is_ok() {
-        Command::new("sh").arg("-c")
+        if !std::env::var("EDITOR").unwrap_or_default().trim().is_empty() {
+            let excode = Command::new("sh").arg("-c")
                           .arg(format!("$EDITOR /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot))
                           .status()?;
-            } else {
+            if !excode.success() {
+                eprintln!("The editor exited with an error; committing the profile as it is.");
+            }
+        } else {
             // nano available
             if Command::new("sh").arg("-c")
                                  .arg("[ -x \"$(command -v nano)\" ]")
-                                 .status().unwrap().success() {
+                                 .status()?.success() {
                                      Command::new("sh").arg("-c")
                                                        .arg(format!("nano /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot))
                                                        .status()?;
@@ -3442,7 +3453,7 @@ pub fn snapshot_profile_edit(snapshot: &str) -> Result<(), Error> {
             // vi available
             else if Command::new("sh").arg("-c")
                                       .arg("[ -x \"$(command -v vi)\" ]")
-                                      .status().unwrap().success() {
+                                      .status()?.success() {
                                           Command::new("sh").arg("-c")
                                                             .arg(format!("vi /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot))
                                                             .status()?;
@@ -3450,7 +3461,7 @@ pub fn snapshot_profile_edit(snapshot: &str) -> Result<(), Error> {
             // vim available
             else if Command::new("sh").arg("-c")
                                       .arg("[ -x \"$(command -v vim)\" ]")
-                                      .status().unwrap().success() {
+                                      .status()?.success() {
                                           Command::new("sh").arg("-c")
                                                             .arg(format!("vim /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot))
                                                             .status()?;
@@ -3458,7 +3469,7 @@ pub fn snapshot_profile_edit(snapshot: &str) -> Result<(), Error> {
             // neovim
             else if Command::new("sh").arg("-c")
                                       .arg("[ -x \"$(command -v nvim)\" ]")
-                                      .status().unwrap().success() {
+                                      .status()?.success() {
                                           Command::new("sh").arg("-c")
                                                             .arg(format!("nvim /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot))
                                                             .status()?;
@@ -3466,20 +3477,27 @@ pub fn snapshot_profile_edit(snapshot: &str) -> Result<(), Error> {
             // micro
             else if Command::new("sh").arg("-c")
                                       .arg("[ -x \"$(command -v micro)\" ]")
-                                      .status().unwrap().success() {
+                                      .status()?.success() {
                                           Command::new("sh").arg("-c")
                                                             .arg(format!("micro /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot))
                                                             .status()?;
                                       }
             else {
+                chr_delete(snapshot)?;
                 return Err(Error::new(ErrorKind::NotFound,
                                       "No text editor available!"));
             }
         }
+
         if check_profile(snapshot).is_err() {
+            chr_delete(snapshot)?;
             return Err(Error::new(ErrorKind::Other,
                                   "Failed to apply changes."));
         }
+
+        // Commit the edit and clean up the chroot, otherwise the edit is
+        // silently discarded by the next prepare()
+        post_transactions(snapshot)?;
     }
     Ok(())
 }
