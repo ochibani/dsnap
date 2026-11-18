@@ -2108,7 +2108,11 @@ fn install_profile(snapshot: &str, profile: &str, force: bool, secondary: bool,
         } else if force {
             println!("Installing profiles...");
             install_package_helper(snapshot, &vec!["dsnap-profiles".to_string()], true)?;
-            profconf.load(&cfile).unwrap();
+            // The package places the profiles inside the snapshot chroot,
+            // not on the host; load the profile from there
+            let chr_cfile = format!("/.snapshots/rootfs/snapshot-chr{}/usr/share/dsnap/profiles/{}/{}", snapshot, profile, dist_name);
+            profconf.load(&chr_cfile).map_err(|_| Error::new(ErrorKind::NotFound,
+                                  format!("Profile {} was not found in the dsnap-profiles package.", profile)))?;
         } else if !user_profile.is_empty() {
             profconf.load(user_profile).unwrap();
         } else if !Path::new(&cfile).is_file() && !force {
@@ -2215,7 +2219,11 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
         } else if force {
             println!("Installing profiles...");
             install_package_helper_live(snapshot, &tmp, &vec!["dsnap-profiles".to_string()], true)?;
-            profconf.load(&cfile).unwrap();
+            // The package installs into the live snapshot, not on the
+            // host; load the profile from there
+            let live_cfile = format!("/.snapshots/rootfs/snapshot-{}/usr/share/dsnap/profiles/{}/{}", tmp, profile, dist_name);
+            profconf.load(&live_cfile).map_err(|_| Error::new(ErrorKind::NotFound,
+                                  format!("Profile {} was not found in the dsnap-profiles package.", profile)))?;
         } else if !user_profile.is_empty() {
             profconf.load(user_profile).unwrap();
         } else if !Path::new(&cfile).is_file() && !force {
