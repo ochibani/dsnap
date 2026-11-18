@@ -1035,16 +1035,26 @@ pub fn deploy(snapshot: &str, secondary: bool, reset: bool) -> Result<String, Er
             let mut contents = String::new();
             fstab_file.read_to_string(&mut contents)?;
 
-            let pattern = format!("snapshot-{}", tmp);
-            if let Some(index) = contents.find(&pattern) {
-                if let Some(end) = contents[index..].find(",ro") {
-                    let replace_index = index + end;
-                    let mut new_contents = String::with_capacity(contents.len());
-                    new_contents.push_str(&contents[..replace_index]);
-                    new_contents.push_str(&contents[replace_index + 3..]);
-                    std::fs::write(format!("/.snapshots/rootfs/snapshot-{}/etc/fstab", tmp), new_contents)?;
+            // The root entry in the copied fstab still references the
+            // old deployment slot; remove ",ro" from the mount options of
+            // the root filesystem (mount point "/") instead of searching
+            // for the not-yet-renamed slot name
+            let mut new_lines: Vec<String> = Vec::new();
+            for line in contents.lines() {
+                let trimmed = line.trim_start();
+                let is_root_mount = !trimmed.starts_with('#')
+                    && line.split_whitespace().nth(1) == Some("/");
+                if is_root_mount && line.contains(",ro") {
+                    new_lines.push(line.replace(",ro", ""));
+                } else {
+                    new_lines.push(line.to_string());
                 }
             }
+            let mut new_contents = new_lines.join("\n");
+            if contents.ends_with('\n') {
+                new_contents.push('\n');
+            }
+            std::fs::write(format!("/.snapshots/rootfs/snapshot-{}/etc/fstab", tmp), new_contents)?;
         }
 
         // Add special user-defined mutable directories as bind-mounts into fstab
