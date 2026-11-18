@@ -582,15 +582,15 @@ pub fn uninstall_package_helper(snapshot: &str, pkgs: &Vec<String>, noconfirm: b
                 pkgs_list.push(pkg.to_string());
             }
         }
-        let uninstall_args = if noconfirm {
-            ["apt-get", "remove", "-y"]
+        let uninstall_args: Vec<&str> = if noconfirm {
+            vec!["apt-get", "remove", "-y"]
         } else {
-            ["apt-get", "remove", ""]
+            vec!["apt-get", "remove"]
         };
 
         if !is_system_locked() || !is_system_pkg(&profconf, pkg.to_string()) {
             let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-chr{}", snapshot))
-                                               .args(uninstall_args)
+                                               .args(&uninstall_args)
                                                .arg(format!("{}", pkg)).status()?;
 
             if !excode.success() {
@@ -634,14 +634,14 @@ pub fn uninstall_package_helper_chroot(snapshot: &str, pkgs: &Vec<String>, nocon
 // Uninstall package(s) atomic-operation live snapshot
 pub fn uninstall_package_helper_live(tmp: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
     for pkg in pkgs {
-        let uninstall_args = if noconfirm {
-            ["apt-get", "remove", "-y"]
+        let uninstall_args: Vec<&str> = if noconfirm {
+            vec!["apt-get", "remove", "-y"]
         } else {
-            ["apt-get", "remove", ""]
+            vec!["apt-get", "remove"]
         };
 
         let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-{}", tmp))
-                                           .args(uninstall_args)
+                                           .args(&uninstall_args)
                                            .arg(format!("{}", pkg)).status()?;
 
         if !excode.success() {
