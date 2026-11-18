@@ -1688,9 +1688,21 @@ pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir) -> Resul
         // Receive snapshot
         println!("Receiving a snapshot, please wait...");
         #[cfg(feature = "btrfs")]
-        Command::new("sh").arg("-c")
-                          .arg(format!("btrfs receive -f {} {}", path,tmp_dir.path().to_str().unwrap()))
-                          .status()?;
+        {
+            // The path travels as $1 so spaces and metacharacters in the
+            // import file survive, and the receive status is checked:
+            // otherwise a partial receive was treated as a success and
+            // the corrupt result imported
+            let excode = Command::new("sh").arg("-c")
+                           .arg(format!("btrfs receive -f \"$1\" {}", tmp_dir.path().to_str().unwrap()))
+                           .arg("sh")
+                           .arg(path)
+                           .status()?;
+            if !excode.success() {
+                return Err(Error::new(ErrorKind::Other,
+                                      format!("Failed to receive snapshot from {}.", path)));
+            }
+        }
 
         // Get snapshot name
         let export_snapshot = get_import_snapshot_name(&format!("{}", tmp_dir.path().to_str().unwrap())).unwrap();
@@ -1859,9 +1871,21 @@ pub fn import_base(path: &str, tmp_dir: &TempDir) -> Result<String, Error> {
         // Receive snapshot
         println!("Receiving a snapshot, please wait...");
         #[cfg(feature = "btrfs")]
-        Command::new("sh").arg("-c")
-                          .arg(format!("btrfs receive -f {} {}", path,tmp_dir.path().to_str().unwrap()))
-                          .status()?;
+        {
+            // The path travels as $1 so spaces and metacharacters in the
+            // import file survive, and the receive status is checked:
+            // otherwise a partial receive was treated as a success and
+            // the corrupt result imported
+            let excode = Command::new("sh").arg("-c")
+                           .arg(format!("btrfs receive -f \"$1\" {}", tmp_dir.path().to_str().unwrap()))
+                           .arg("sh")
+                           .arg(path)
+                           .status()?;
+            if !excode.success() {
+                return Err(Error::new(ErrorKind::Other,
+                                      format!("Failed to receive snapshot from {}.", path)));
+            }
+        }
 
         // Get snapshot name
         let snapshot = get_import_snapshot_name(&format!("{}", tmp_dir.path().to_str().unwrap())).unwrap();
