@@ -1594,9 +1594,9 @@ pub fn hollow(snapshot: &str) -> Result<(), Error> {
         // Deploy or not
         if yes_no(&format!("Snapshot {} is now hollow! Whenever done, type yes to deploy and no to discard.", snapshot)) {
             posttrans(snapshot)?;
-            if check_mutability(snapshot) {
-                immutability_enable(snapshot)?;
-            }
+            // A hollowed snapshot is meant to be editable, so ensure
+            // it is mutable regardless of its previous state
+            immutability_disable(snapshot)?;
             deploy(snapshot, false, false)?;
         } else {
             chr_delete(snapshot)?;
