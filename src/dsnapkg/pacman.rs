@@ -5,7 +5,7 @@ use crate::{cp_reflink, cp_reflink_no_clobber,check_profile, check_mutability, c
 use configparser::ini::{Ini, WriteOptions};
 use rustix::path::Arg;
 use std::fs::{File, metadata, OpenOptions, read_dir};
-use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Write};
+use std::io::{Error, ErrorKind, Read, Write};
 use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
@@ -472,25 +472,9 @@ pub fn is_service_enabled(snapshot: &str, service: &str) -> bool {
 
 // Prevent system packages from being automatically removed
 pub fn lockpkg(snapshot:&str, profconf: &Ini) -> Result<(), Error> {
-    // Open the file
     let pacman_conf_path = format!("/.snapshots/rootfs/snapshot-chr{}/etc/pacman.conf", snapshot);
-    let pfile = File::open(&pacman_conf_path)?;
-    let reader = BufReader::new(pfile);
 
-    // Get old value for HoldPkg
-    let mut old_hold_pkgs = String::new();
-    for line in reader.lines() {
-        let line = line?;
-        if line.starts_with("HoldPkg") {
-            old_hold_pkgs.push_str(&line);
-            break;
-        } else if line.starts_with("#HoldPkg") {
-            old_hold_pkgs.push_str(&line);
-            break;
-        }
-    }
-
-    // Replace HoldPkg value
+    // Collect the system packages the profile wants held
     let mut system_pkgs: Vec<String> = Vec::new();
     if profconf.sections().contains(&"system-packages".to_string()) {
         for pkg in profconf.get_map().unwrap().get("system-packages").unwrap().keys() {
@@ -498,16 +482,44 @@ pub fn lockpkg(snapshot:&str, profconf: &Ini) -> Result<(), Error> {
         }
     }
 
-    if !system_pkgs.is_empty() {
-        let pkgs = system_pkgs.iter().map(|s| s.to_string()).collect::<Vec<String>>().join(" ");
-        let new_hold_pkgs = format!("HoldPkg = {}", pkgs);
-        let mut contents = String::new();
-        let mut pfile = File::open(&pacman_conf_path)?;
-        pfile.read_to_string(&mut contents)?;
-        let modified_pacman_contents = contents.replace(&old_hold_pkgs, &new_hold_pkgs);
-        let mut nfile = File::create(&pacman_conf_path)?;
-        nfile.write_all(modified_pacman_contents.as_bytes())?;
+    // Read the whole file
+    let mut contents = String::new();
+    let mut pfile = File::open(&pacman_conf_path)?;
+    pfile.read_to_string(&mut contents)?;
+
+    // Build the HoldPkg line
+    let new_hold_pkgs = if !system_pkgs.is_empty() {
+        let pkgs = system_pkgs.join(" ");
+        format!("HoldPkg = {}", pkgs)
+    } else {
+        String::new()
+    };
+
+    // Replace the first existing HoldPkg line (commented or not);
+    // otherwise append it. Never replace an empty string, that would
+    // insert the value between every character of the file
+    let mut replaced = false;
+    let mut new_lines: Vec<String> = Vec::new();
+    for line in contents.lines() {
+        let trimmed = line.trim_start();
+        if !replaced && (trimmed.starts_with("HoldPkg") || trimmed.starts_with("#HoldPkg")) {
+            if !new_hold_pkgs.is_empty() {
+                new_lines.push(new_hold_pkgs.clone());
+            }
+            replaced = true;
+        } else {
+            new_lines.push(line.to_string());
+        }
     }
+    if !replaced && !new_hold_pkgs.is_empty() {
+        new_lines.push(new_hold_pkgs);
+    }
+    let mut new_contents = new_lines.join("\n");
+    if contents.ends_with('\n') {
+        new_contents.push('\n');
+    }
+    let mut nfile = File::create(&pacman_conf_path)?;
+    nfile.write_all(new_contents.as_bytes())?;
     Ok(())
 }
 
