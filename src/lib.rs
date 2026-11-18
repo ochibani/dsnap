@@ -2089,10 +2089,15 @@ pub fn install(snapshot: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<()
 pub fn install_live(pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
     let snapshot = &get_current_snapshot();
     let tmp = get_tmp();
-    dsnap_mounts(&tmp, "").unwrap();
+    dsnap_mounts(&tmp, "").map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
     let run = install_package_helper_live(snapshot, &tmp, &pkgs, noconfirm);
     // Umount even when the install failed, otherwise the mounts leak
-    dsnap_umounts(&tmp, "").unwrap();
+    if let Err(e) = dsnap_umounts(&tmp, "") {
+        if run.is_ok() {
+            return Err(Error::new(ErrorKind::Other, e.to_string()));
+        }
+        eprintln!("Failed to unmount live snapshot {}: {}", tmp, e);
+    }
     run
 }
 
@@ -4040,8 +4045,9 @@ pub fn uninstall(snapshot: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<
             post_transactions(snapshot)?;
             println!("Package(s) {pkgs:?} removed from snapshot {} successfully.", snapshot);
         } else {
-            chr_delete(snapshot).unwrap();
-            eprintln!("Remove failed and changes discarded.");
+            chr_delete(snapshot)?;
+            return Err(Error::new(ErrorKind::Interrupted,
+                                  "Remove failed and changes discarded.".to_string()));
         }
     }
     Ok(())
@@ -4050,10 +4056,15 @@ pub fn uninstall(snapshot: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<
 // Uninstall live
 pub fn uninstall_live(pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
     let tmp = get_tmp();
-    dsnap_mounts(&tmp, "").unwrap();
+    dsnap_mounts(&tmp, "").map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
     let run = uninstall_package_helper_live(&tmp, &pkgs, noconfirm);
     // Umount even when the uninstall failed, otherwise the mounts leak
-    dsnap_umounts(&tmp, "").unwrap();
+    if let Err(e) = dsnap_umounts(&tmp, "") {
+        if run.is_ok() {
+            return Err(Error::new(ErrorKind::Other, e.to_string()));
+        }
+        eprintln!("Failed to unmount live snapshot {}: {}", tmp, e);
+    }
     run
 }
 
