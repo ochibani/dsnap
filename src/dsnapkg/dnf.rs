@@ -273,12 +273,20 @@ pub fn pkg_list(snapshot: &str, chr: &str) -> Vec<String> {
 }
 
 // DNF query
-pub fn pkg_query(pkg: &str) -> Result<ExitStatus, Error> {
-    let rpm_query = "rpm -q --queryformat '%{NAME} %{VERSION}\n'";
-    let excode = Command::new("sh").arg("-c")
-                                   .arg(format!("{} {}", rpm_query,pkg))
-                                   .status();
-    excode
+pub fn pkg_query(pkg: &str) -> Result<String, Error> {
+    let output = Command::new("rpm")
+                      .args(["-q", "--queryformat", "%{NAME} %{VERSION}", pkg])
+                      .output()?;
+    if !output.status.success() {
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Package {} not found.", pkg)));
+    }
+    // rpm -q --queryformat prints "pkg version"
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let version = stdout.split_whitespace().nth(1)
+                        .ok_or_else(|| Error::new(ErrorKind::Other,
+                                                   format!("Failed to parse version for package {}.", pkg)))?;
+    Ok(version.to_string())
 }
 
 // Refresh snapshot atomic-operation

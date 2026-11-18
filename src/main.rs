@@ -1119,7 +1119,7 @@ fn main() {
                 // Run dsnap_version
                 let run = dsnap_version();
                 match run {
-                    Ok(_) => (),
+                    Ok(version) => println!("{}", version),
                     Err(e) => eprintln!("{}", e),
                 }
             }

@@ -358,12 +358,22 @@ pub fn pkg_list(snapshot: &str, chr: &str) -> Vec<String> {
 }
 
 // Run dpkg-query
-pub fn pkg_query(pkg: &str) -> Result<ExitStatus, Error> {
-    let dpkg_query = "dpkg-query -W -f='${Package} ${Version}\n'";
-    let excode = Command::new("sh").arg("-c")
-                                   .arg(format!("{} {}", dpkg_query,pkg))
-                                   .status();
-    excode
+pub fn pkg_query(pkg: &str) -> Result<String, Error> {
+    let output = Command::new("dpkg-query")
+                      .arg("-W")
+                      .arg("-f=${Package} ${Version}")
+                      .arg(pkg)
+                      .output()?;
+    if !output.status.success() {
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Package {} not found.", pkg)));
+    }
+    // dpkg-query prints "pkg version"
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let version = stdout.split_whitespace().nth(1)
+                        .ok_or_else(|| Error::new(ErrorKind::Other,
+                                                   format!("Failed to parse version for package {}.", pkg)))?;
+    Ok(version.to_string())
 }
 
 // Refresh snapshot atomic-operation

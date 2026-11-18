@@ -7,7 +7,7 @@ use rustix::path::Arg;
 use std::fs::{File, metadata, OpenOptions, read_dir};
 use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Write};
 use std::path::Path;
-use std::process::{Command, ExitStatus};
+use std::process::Command;
 use tempfile::TempDir;
 use users::get_user_by_name;
 use users::os::unix::UserExt;
@@ -532,9 +532,20 @@ pub fn pkg_list(snapshot: &str, chr: &str) -> Vec<String> {
 }
 
 // Pacman query
-pub fn pkg_query(pkg: &str) -> Result<ExitStatus, Error> {
-    let excode = Command::new("dpkg-query").arg("-W").arg("-f='${Package} ${Version}'").arg(pkg).status();
-    excode
+pub fn pkg_query(pkg: &str) -> Result<String, Error> {
+    let output = Command::new("pacman")
+                      .args(["-Q", pkg])
+                      .output()?;
+    if !output.status.success() {
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Package {} not found.", pkg)));
+    }
+    // pacman -Q prints "pkg version"
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let version = stdout.split_whitespace().nth(1)
+                        .ok_or_else(|| Error::new(ErrorKind::Other,
+                                                   format!("Failed to parse version for package {}.", pkg)))?;
+    Ok(version.to_string())
 }
 
 // Refresh snapshot atomic-operation
