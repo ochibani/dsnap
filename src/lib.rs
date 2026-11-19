@@ -3841,8 +3841,7 @@ pub fn tree_run(treename: &str, cmd: &str) -> Result<(), Error> {
 pub fn tree_show() -> Result<(), Error> {
     // Import tree file
     let tree = fstree().map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
-    tree_print(&tree);
-    Ok(())
+    tree_print(&tree)
 }
 
 // Sync tree and all its snapshots

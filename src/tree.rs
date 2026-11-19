@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 use pyo3::{PyErr, PyObject};
 use std::fs::{File, OpenOptions, read_to_string};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Error, Write};
 use std::path::Path;
 
 
@@ -214,49 +214,40 @@ pub fn return_children(tree: &PyObject, id: &str) -> Result<Vec<String>, PyErr> 
 }
 
 // Print out tree with descriptions
-pub fn tree_print(tree: &PyObject) {
+pub fn tree_print(tree: &PyObject) -> Result<(), Error> {
     Python::with_gil(|py| {
-        let snapshot = get_current_snapshot().unwrap_or_default();
+        let snapshot = get_current_snapshot()?;
 
         // From anytree import AsciiStyle, RenderTree
-        let anytree =  py.import_bound("anytree").unwrap();
-        let asciistyle = anytree.call_method("AsciiStyle", PyTuple::empty_bound(py), None).unwrap();
+        let anytree = py.import_bound("anytree")?;
+        let asciistyle = anytree.call_method("AsciiStyle", PyTuple::empty_bound(py), None)?;
         let style = PyDict::new_bound(py);
-        style.set_item("style", asciistyle).unwrap();
-        let rendertree = anytree.call_method("RenderTree", (tree,), Some(&style)).unwrap();
+        style.set_item("style", asciistyle)?;
+        let rendertree = anytree.call_method("RenderTree", (tree,), Some(&style))?;
 
-        for row in rendertree.iter().unwrap() {
-            let node = row.as_ref().unwrap().getattr("node").unwrap();
-            if Path::new(&format!("/.snapshots/dsnap/snapshots/{}-desc", node.getattr("name").unwrap().to_string())).is_file() {
-                let desc = read_to_string(format!("/.snapshots/dsnap/snapshots/{}-desc", node.getattr("name").unwrap().to_string())).unwrap();
-                if snapshot != node.getattr("name").unwrap().to_string() {
-                    println!("{}{} - {}", row.unwrap().getattr("pre").unwrap().to_string(), node.getattr("name").unwrap().to_string(), desc);
-                } else {
-                    println!("{}{}*- {}", row.unwrap().getattr("pre").unwrap().to_string(), node.getattr("name").unwrap().to_string(), desc);
-                }
-            } else if node.getattr("name").unwrap().to_string() == "0" {
-                let desc = "base snapshot.";
-                if snapshot != node.getattr("name").unwrap().to_string() {
-                    println!("{}{} - {}", row.unwrap().getattr("pre").unwrap().to_string(), node.getattr("name").unwrap().to_string(), desc);
-                } else {
-                    println!("{}{}*- {}", row.unwrap().getattr("pre").unwrap().to_string(), node.getattr("name").unwrap().to_string(), desc);
-                }
-            } else if node.getattr("name").unwrap().to_string() == "root" {
-                let desc = "";
-                if snapshot != node.getattr("name").unwrap().to_string() {
-                    println!("{}{} {}", row.unwrap().getattr("pre").unwrap().to_string(), node.getattr("name").unwrap().to_string(), desc);
-                } else {
-                    println!("{}{} {}", row.unwrap().getattr("pre").unwrap().to_string(), node.getattr("name").unwrap().to_string(), desc);
-                }
+        for row in rendertree.iter()? {
+            let row = row?;
+            let node = row.getattr("node")?;
+            let name = node.getattr("name")?.to_string();
+            let prefix = row.getattr("pre")?.to_string();
+            let desc_path = format!("/.snapshots/dsnap/snapshots/{}-desc", name);
+            let (desc, is_root) = if Path::new(&desc_path).is_file() {
+                (read_to_string(&desc_path)?, false)
+            } else if name == "0" {
+                ("base snapshot.".to_string(), false)
+            } else if name == "root" {
+                (String::new(), true)
             } else {
-                let desc = "";
-                if snapshot != node.getattr("name").unwrap().to_string() {
-                    println!("{}{} - {}", row.unwrap().getattr("pre").unwrap().to_string(), node.getattr("name").unwrap().to_string(), desc);
-                } else {
-                    println!("{}{}*- {}", row.unwrap().getattr("pre").unwrap().to_string(), node.getattr("name").unwrap().to_string(), desc);
-                }
+                (String::new(), false)
+            };
+            let marker = if snapshot == name { "*" } else { "" };
+            if is_root {
+                println!("{}{}{} {}", prefix, name, marker, desc);
+            } else {
+                println!("{}{}{} - {}", prefix, name, marker, desc);
             }
         }
+        Ok(())
     })
 }
 
