@@ -260,6 +260,14 @@ pub fn check_mutability(snapshot: &str) -> bool {
         .unwrap_or(false)
 }
 
+// Check whether a snapshot or live root uses systemd. Detection is done
+// inside the target, never on the host running dsnap.
+pub fn has_systemd(snapshot: &str, chr: &str) -> Result<bool, Error> {
+    let root = format!("/.snapshots/rootfs/snapshot-{}{}", chr, snapshot);
+    Ok(Path::new(&format!("{}/usr/lib/systemd/system", root)).try_exists()?
+       || Path::new(&format!("{}/etc/systemd/system", root)).try_exists()?)
+}
+
 // Check if snapshot profile was changed
 fn check_profile(snapshot: &str) -> Result<(), Error> {
     println!("Saving the changes, Please wait.");
@@ -282,7 +290,6 @@ fn check_profile(snapshot: &str) -> Result<(), Error> {
     let old_system_pkgs = section_keys(&old_profconf, "system-packages");
     let old_pkgs = section_keys(&old_profconf, "profile-packages");
     let old_enable = section_keys(&old_profconf, "enable-services");
-    let old_disable = section_keys(&old_profconf, "disable-services");
 
     // Get new values
     let cfile = format!("/.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot);
@@ -293,7 +300,6 @@ fn check_profile(snapshot: &str) -> Result<(), Error> {
     let new_system_pkgs = section_keys(&profconf, "system-packages");
     let new_pkgs = section_keys(&profconf, "profile-packages");
     let new_enable = section_keys(&profconf, "enable-services");
-    let new_disable = section_keys(&profconf, "disable-services");
 
     // Apply changes
     // Install new system package(s)
@@ -321,15 +327,10 @@ fn check_profile(snapshot: &str) -> Result<(), Error> {
         install_package_helper_chroot(snapshot, &pkgs_to_install, true)?;
     }
 
-    // Disable removed service(s)
+    // Disable service(s) removed from enable-services
     let mut services_to_disable: Vec<String> = Vec::new();
     for service in &old_enable {
         if !new_enable.contains(service) {
-            services_to_disable.push(service.to_string());
-        }
-    }
-    for service in &new_disable {
-        if !old_disable.contains(service) && !services_to_disable.contains(service) {
             services_to_disable.push(service.to_string());
         }
     }
@@ -403,23 +404,18 @@ fn check_profile(snapshot: &str) -> Result<(), Error> {
         profile_write(&cfile, &profconf, &write_options)?;
     }
 
-    // Check services
-    if profconf.sections().contains(&"enable-services".to_string()) {
-        for service in section_keys(&profconf, "enable-services") {
-            if !is_service_enabled(snapshot, &service) {
-                profconf.remove_key("enable-services", &service);
-            }
+    // Keep enable-services in sync with the units actually enabled in the
+    // snapshot, the same way profile-packages tracks installed packages.
+    let enabled_units = service_list_enabled(snapshot, "chr")?;
+    for unit in section_keys(&profconf, "enable-services") {
+        if !enabled_units.contains(&unit) {
+            profconf.remove_key("enable-services", &unit);
         }
-        profile_write(&cfile, &profconf, &write_options)?;
     }
-    if profconf.sections().contains(&"disable-services".to_string()) {
-        for service in section_keys(&profconf, "disable-services") {
-            if is_service_enabled(snapshot, &service) {
-                profconf.remove_key("disable-services", &service);
-            }
-        }
-        profile_write(&cfile, &profconf, &write_options)?;
+    for unit in &enabled_units {
+        profconf.set("enable-services", unit, None);
     }
+    profile_write(&cfile, &profconf, &write_options)?;
 
     // Prevent duplication
     let current_profile_pkgs = section_keys(&profconf, "profile-packages");
@@ -2128,16 +2124,6 @@ fn install_profile(snapshot: &str, profile: &str, force: bool, secondary: bool,
             install_package_helper(snapshot, &pkgs, noconfirm)?;
         }
 
-        // Read disable services section in configuration file
-        if profconf.sections().contains(&"disable-services".to_string()) {
-            let section = profconf.get_map_ref().get("disable-services")
-                .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Invalid profile: missing disable-services section."))?;
-            let mut services: Vec<String> = section.keys().cloned().collect();
-            services.retain(|s| !s.trim().is_empty());
-            // Disable service(s)
-            service_disable(snapshot, &services, "chr")?;
-        }
-
         // Read enable services section in configuration file
         if profconf.sections().contains(&"enable-services".to_string()) {
             let section = profconf.get_map_ref().get("enable-services")
@@ -2161,7 +2147,6 @@ fn install_profile(snapshot: &str, profile: &str, force: bool, secondary: bool,
 
         // Ignore empty file
         if !profconf.sections().contains(&"profile-packages".to_string()) &&
-            !profconf.sections().contains(&"disable-services".to_string()) &&
             !profconf.sections().contains(&"enable-services".to_string()) &&
             !profconf.sections().contains(&"install-commands".to_string()) &&
             !(cfg!(feature = "pacman") && profconf.sections().contains(&"presets".to_string()))
@@ -2244,18 +2229,6 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
             install_package_helper_live(snapshot, &tmp, &pkgs, noconfirm)?;
         }
 
-        // Read disable services section in configuration file
-        if profconf.sections().contains(&"disable-services".to_string()) {
-            let section = profconf.get_map_ref().get("disable-services")
-                .ok_or_else(|| Error::new(ErrorKind::InvalidData, "Invalid profile: missing disable-services section."))?;
-            let mut services: Vec<String> = section.keys().cloned().collect();
-            services.retain(|s| !s.trim().is_empty());
-            // Disable service(s) in the live snapshot; the "chr" mode
-            // targets snapshot-chr{snapshot} which is not created by the
-            // live flow
-            service_disable(&tmp, &services, "")?;
-        }
-
         // Read enable services section in configuration file
         if profconf.sections().contains(&"enable-services".to_string()) {
             let section = profconf.get_map_ref().get("enable-services")
@@ -2279,7 +2252,6 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
 
         // Ignore empty file
         if !profconf.sections().contains(&"profile-packages".to_string()) &&
-            !profconf.sections().contains(&"disable-services".to_string()) &&
             !profconf.sections().contains(&"enable-services".to_string()) &&
             !profconf.sections().contains(&"install-commands".to_string()) &&
             !(cfg!(feature = "pacman") && profconf.sections().contains(&"presets".to_string()))
@@ -2466,6 +2438,63 @@ pub fn list_subvolumes() -> Result<(), Error> {
     #[cfg(not(feature = "btrfs"))]
     {
         return Err(Error::new(ErrorKind::Unsupported, "Subvolume listing is not supported for this filesystem.".to_string()));
+    }
+    Ok(())
+}
+
+// Enable or disable systemd unit(s) in a snapshot and keep the profile in sync.
+pub fn service_control(snapshot: &str, enable: &Vec<String>, disable: &Vec<String>) -> Result<(), Error> {
+    if !Path::new(&format!("/.snapshots/rootfs/snapshot-{}", snapshot)).try_exists()? {
+        return Err(Error::new(ErrorKind::NotFound,
+                              format!("Cannot change services as snapshot {} doesn't exist.", snapshot)));
+    }
+    if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot)).try_exists()? {
+        return Err(Error::new(ErrorKind::Unsupported,
+                              format!("Snapshot {} appears to be in use. If you're certain it's not in use, clear lock with 'dsnap unlock -s {}'.",
+                                      snapshot, snapshot)));
+    }
+    if snapshot == "0" {
+        return Err(Error::new(ErrorKind::Unsupported,
+                              "Changing services in base snapshot is not allowed.".to_string()));
+    }
+    if enable.is_empty() && disable.is_empty() {
+        return Ok(());
+    }
+
+    prepare(snapshot)?;
+    let run = (|| -> Result<(), Error> {
+        if !enable.is_empty() {
+            service_enable(snapshot, enable, "chr")?;
+        }
+        if !disable.is_empty() {
+            service_disable(snapshot, disable, "chr")?;
+        }
+
+        let cfile = format!("/.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot);
+        let mut profconf = Ini::new_cs();
+        profconf.set_comment_symbols(&['#']);
+        profconf.set_multiline(true);
+        profconf.load(&cfile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
+        let mut write_options = WriteOptions::default();
+        write_options.blank_lines_between_sections = 1;
+
+        for unit in enable {
+            profconf.remove_key("enable-services", unit);
+            profconf.set("enable-services", unit, None);
+        }
+        for unit in disable {
+            profconf.remove_key("enable-services", unit);
+        }
+        profile_write(&cfile, &profconf, &write_options)
+    })();
+    if let Err(e) = run {
+        let _ = chr_delete(snapshot);
+        return Err(e);
+    }
+    if let Err(e) = post_transactions(snapshot) {
+        let _ = chr_delete(snapshot);
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Service change failed and changes discarded: {}", e)));
     }
     Ok(())
 }

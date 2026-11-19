@@ -1,4 +1,4 @@
-use crate::{cp_reflink, cp_reflink_no_clobber,check_profile, chr_delete, chroot_exec, get_tmp, grub,
+use crate::{has_systemd, cp_reflink, cp_reflink_no_clobber,check_profile, chr_delete, chroot_exec, get_tmp, grub,
             is_system_locked, is_system_pkg, post_transactions,
             prepare, remove_dir_content, profile_write, sync_time};
 
@@ -261,16 +261,26 @@ pub fn install_package_helper_live(_snapshot: &str, tmp: &str, pkgs: &Vec<String
     Ok(())
 }
 
-// Check if service enabled
-pub fn is_service_enabled(snapshot: &str, service: &str) -> bool {
-    if !Path::new("/var/lib/systemd/").try_exists().unwrap_or(false) {
-        // TODO add more init system
-        return false;
+// List persistent enabled systemd units in a snapshot or live root.
+pub fn service_list_enabled(snapshot: &str, chr: &str) -> Result<Vec<String>, Error> {
+    let target = format!("/.snapshots/rootfs/snapshot-{}{}", chr, snapshot);
+    if !Path::new(&format!("{}/usr/lib/systemd/system", target)).try_exists()?
+        && !Path::new(&format!("{}/etc/systemd/system", target)).try_exists()? {
+        return Ok(Vec::new());
     }
-    let Ok(excode) = Command::new("sh").arg("-c")
-        .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} systemctl is-enabled {}", snapshot, service))
-        .output() else { return false; };
-    String::from_utf8_lossy(&excode.stdout).trim() == "enabled"
+    let output = Command::new("chroot").arg(&target)
+                                      .args(["systemctl", "list-unit-files", "--state=enabled",
+                                             "--no-legend", "--plain"])
+                                      .output()?;
+    if !output.status.success() {
+        return Err(Error::new(ErrorKind::Other, "Failed to list enabled systemd units."));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout.lines()
+                .filter_map(|line| line.split_whitespace().next())
+                .filter(|unit| !unit.is_empty())
+                .map(|unit| unit.to_string())
+                .collect())
 }
 
 // Prevent system packages from being automatically removed
@@ -395,7 +405,7 @@ pub fn refresh_helper(snapshot: &str) -> Result<(), Error> {
 pub fn service_disable(snapshot: &str, services: &Vec<String>, chr: &str) -> Result<(), Error> {
     for service in services {
         // Systemd
-        if Path::new("/var/lib/systemd/").try_exists()? {
+        if has_systemd(snapshot, chr)? {
             let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-{}{}", chr,snapshot))
                                                .arg("systemctl")
                                                .arg("disable")
@@ -413,7 +423,7 @@ pub fn service_disable(snapshot: &str, services: &Vec<String>, chr: &str) -> Res
 pub fn service_enable(snapshot: &str, services: &Vec<String>, chr: &str) -> Result<(), Error> {
     for service in services {
         // Systemd
-        if Path::new("/var/lib/systemd/").try_exists()? {
+        if has_systemd(snapshot, chr)? {
             let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-{}{}", chr,snapshot))
                                                .arg("systemctl")
                                                .arg("enable")
@@ -495,18 +505,6 @@ pub fn system_config(snapshot: &str, profconf: &Ini) -> Result<(), Error> {
         }
         if !pkgs_list.is_empty() {
             install_package_helper_chroot(snapshot, &pkgs_list,true)?;
-        }
-    }
-
-    // Read disable services section in configuration file
-    if let Some(section) = profconf.get_map().and_then(|map| map.get("disable-services").cloned()) {
-        let mut services: Vec<String> = Vec::new();
-        for service in section.keys() {
-            services.push(service.to_string());
-        }
-        // Disable service(s)
-        if !services.is_empty() {
-            service_disable(snapshot, &services, "chr")?;
         }
     }
 

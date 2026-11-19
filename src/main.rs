@@ -1297,6 +1297,29 @@ fn main() {
                     Err(e) => eprintln!("{}", e),
                 }
             }
+            // Service control
+            Some(("service", service_matches)) => {
+                let snapshot = if service_matches.contains_id("SNAPSHOT") {
+                    let snap = service_matches.get_one::<i32>("SNAPSHOT").unwrap();
+                    format!("{}", snap)
+                } else {
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => { eprintln!("{}", e); return; }
+                    }
+                };
+                let enable: Vec<String> = if service_matches.contains_id("ENABLE") {
+                    service_matches.get_many::<String>("ENABLE").unwrap().map(|s| s.to_string()).collect()
+                } else { Vec::new() };
+                let disable: Vec<String> = if service_matches.contains_id("DISABLE") {
+                    service_matches.get_many::<String>("DISABLE").unwrap().map(|s| s.to_string()).collect()
+                } else { Vec::new() };
+
+                match service_control(&snapshot, &enable, &disable) {
+                    Ok(_) => println!("Service state updated in snapshot {}.", snapshot),
+                    Err(e) => eprintln!("{}", e),
+                }
+            }
             // Unlock a snapshot
             Some(("unlock", unlock_matches)) => {
                 // Get snapshot value
