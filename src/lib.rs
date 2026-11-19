@@ -1429,22 +1429,23 @@ pub fn get_current_snapshot() -> Result<String, Error> {
 }
 
 // Get snapshot name in tmp
-fn get_import_snapshot_name(path: &str) -> Option<String> {
+fn get_import_snapshot_name(path: &Path) -> Result<String, Error> {
     for entry in WalkDir::new(path).max_depth(1) {
-        let Ok(entry) = entry else {
-            continue;
-        };
-        let path = entry.path();
-        if !path.is_dir() {
+        let entry = entry.map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+        let entry_path = entry.path();
+        if !entry_path.is_dir() {
             continue;
         }
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        if let Some(name) = entry_path.file_name().and_then(|n| n.to_str()) {
             if name.contains("snapshot-") {
-                return Some(name.to_string());
+                return Ok(name.to_string());
             }
         }
     }
-    None
+    Err(Error::new(
+        ErrorKind::NotFound,
+        format!("Could not find received snapshot in {}.", path.display()),
+    ))
 }
 
 // Get deployed snapshot
@@ -1678,6 +1679,8 @@ pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir) -> Resul
             interrupted_clone.store(true, Ordering::SeqCst);
         }).expect("Error setting Ctrl+C handler");
 
+        let tmp_path = tmp_dir.path().to_string_lossy().to_string();
+
         // Receive snapshot
         println!("Receiving a snapshot, please wait...");
         #[cfg(feature = "btrfs")]
@@ -1687,7 +1690,7 @@ pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir) -> Resul
             // otherwise a partial receive was treated as a success and
             // the corrupt result imported
             let excode = Command::new("sh").arg("-c")
-                           .arg(format!("btrfs receive -f \"$1\" {}", tmp_dir.path().to_str().unwrap()))
+                           .arg(format!("btrfs receive -f \"$1\" {}", tmp_path))
                            .arg("sh")
                            .arg(path)
                            .status()?;
@@ -1698,24 +1701,25 @@ pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir) -> Resul
         }
 
         // Get snapshot name
-        let export_snapshot = get_import_snapshot_name(&format!("{}", tmp_dir.path().to_str().unwrap())).unwrap();
+        let export_snapshot = get_import_snapshot_name(tmp_dir.path())?;
+        let received_path = format!("{}/{}", tmp_path, export_snapshot);
 
         // Prepare snapshot
-        create_snapshot(&format!("{}/{}", tmp_dir.path().to_str().unwrap(), export_snapshot),
+        create_snapshot(&received_path,
                         &format!("/.snapshots/rootfs/snapshot-chr{}", snapshot),
                         false)?;
 
         // Delete the folder if the process was interrupted
         if interrupted.load(Ordering::SeqCst) {
             // Clean tmp
-            if Path::new(&format!("{}/{}", tmp_dir.path().to_str().unwrap(), export_snapshot)).try_exists().unwrap() {
-                delete_subvolume(&format!("{}/{}", tmp_dir.path().to_str().unwrap(), export_snapshot))?;
-                std::process::exit(1);
+            if Path::new(&received_path).try_exists().unwrap_or(false) {
+                let _ = delete_subvolume(&received_path);
             }
+            std::process::exit(1);
         }
 
         // Clean tmp
-        delete_subvolume(&format!("{}/{}", tmp_dir.path().to_str().unwrap(), export_snapshot))?;
+        delete_subvolume(&received_path)?;
 
         // Copy fstab
                 cp_reflink("/.snapshots/rootfs/snapshot-0/etc/fstab",
@@ -1861,6 +1865,8 @@ pub fn import_base(path: &str, tmp_dir: &TempDir) -> Result<String, Error> {
             interrupted_clone.store(true, Ordering::SeqCst);
         }).expect("Error setting Ctrl+C handler");
 
+        let tmp_path = tmp_dir.path().to_string_lossy().to_string();
+
         // Receive snapshot
         println!("Receiving a snapshot, please wait...");
         #[cfg(feature = "btrfs")]
@@ -1870,7 +1876,7 @@ pub fn import_base(path: &str, tmp_dir: &TempDir) -> Result<String, Error> {
             // otherwise a partial receive was treated as a success and
             // the corrupt result imported
             let excode = Command::new("sh").arg("-c")
-                           .arg(format!("btrfs receive -f \"$1\" {}", tmp_dir.path().to_str().unwrap()))
+                           .arg(format!("btrfs receive -f \"$1\" {}", tmp_path))
                            .arg("sh")
                            .arg(path)
                            .status()?;
@@ -1881,24 +1887,25 @@ pub fn import_base(path: &str, tmp_dir: &TempDir) -> Result<String, Error> {
         }
 
         // Get snapshot name
-        let snapshot = get_import_snapshot_name(&format!("{}", tmp_dir.path().to_str().unwrap())).unwrap();
+        let snapshot = get_import_snapshot_name(tmp_dir.path())?;
+        let received_path = format!("{}/{}", tmp_path, snapshot);
 
         // Prepare snapshot
-        create_snapshot(&format!("{}/{}", tmp_dir.path().to_str().unwrap(),snapshot),
+        create_snapshot(&received_path,
                         "/.snapshots/rootfs/snapshot-chr0",
                         false)?;
 
         // Delete the folder if the process was interrupted
         if interrupted.load(Ordering::SeqCst) {
             // Clean tmp
-            if Path::new(&format!("{}/{}", tmp_dir.path().to_str().unwrap(),snapshot)).try_exists().unwrap() {
-                delete_subvolume(&format!("{}/{}", tmp_dir.path().to_str().unwrap(),snapshot))?;
-                std::process::exit(1);
+            if Path::new(&received_path).try_exists().unwrap_or(false) {
+                let _ = delete_subvolume(&received_path);
             }
+            std::process::exit(1);
         }
 
         // Clean tmp
-        delete_subvolume(&format!("{}/{}", tmp_dir.path().to_str().unwrap(),snapshot))?;
+        delete_subvolume(&received_path)?;
         clean_cache("0")?;
 
         // Copy fstab
