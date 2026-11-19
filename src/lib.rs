@@ -2552,48 +2552,26 @@ pub fn post_transactions(snapshot: &str) -> Result<(), Error> {
     dsnap_umounts(snapshot, "chr")?;
 
     // Special mutable directories
-    let options = snapshot_config_get(snapshot);
-    let mutable_dirs: Vec<&str> = options.get("mutable_dirs")
-                                                .map(|dirs| {dirs.split(',').flat_map(|dir| {
-                                                    if let Some(index) = dir.find("::") {
-                                                        vec![&dir[..index], &dir[index + 2..]]
-                                                    } else {
-                                                        vec![dir]
-                                                    }
-                                                }).filter(|dir| !dir.trim().is_empty()).collect()})
-                                                .unwrap_or_else(|| Vec::new());
-    let mutable_dirs_shared: Vec<&str> = options.get("mutable_dirs_shared")
-                                                .map(|dirs| {dirs.split(',').flat_map(|dir| {
-                                                    if let Some(index) = dir.find("::") {
-                                                        vec![&dir[..index], &dir[index + 2..]]
-                                                    } else {
-                                                        vec![dir]
-                                                    }
-                                                }).filter(|dir| !dir.trim().is_empty()).collect()})
-                                                .unwrap_or_else(|| Vec::new());
+    let config = snapshot_config(snapshot)?;
 
-    if !mutable_dirs.is_empty() {
-        for mount_path in mutable_dirs {
-            if !allow_dir_mut(mount_path) {
-                return Err(Error::new(ErrorKind::InvalidInput,
-                                      format!("Please insert valid value for mutable_dirs in /.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot)));
-            }
-            let mount = format!("/.snapshots/rootfs/snapshot-chr{}/{}", snapshot, mount_path);
-            if is_mounted(Path::new(&mount))? {
-                umount2(Path::new(&mount), MntFlags::MNT_DETACH)?;
-            }
+    for mount_path in &config.mutable_dirs {
+        if !allow_dir_mut(mount_path) {
+            return Err(Error::new(ErrorKind::InvalidInput,
+                                  format!("Please insert valid value for mutable_dirs in /.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot)));
+        }
+        let mount = format!("/.snapshots/rootfs/snapshot-chr{}/{}", snapshot, mount_path);
+        if is_mounted(Path::new(&mount))? {
+            umount2(Path::new(&mount), MntFlags::MNT_DETACH)?;
         }
     }
-    if !mutable_dirs_shared.is_empty() {
-        for mount_path in mutable_dirs_shared {
-            if !allow_dir_mut(mount_path) {
-                return Err(Error::new(ErrorKind::InvalidInput,
-                                      format!("Please insert valid value for mutable_dirs_shared in /.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot)));
-            }
-            let mount = format!("/.snapshots/rootfs/snapshot-chr{}/{}", snapshot, mount_path);
-            if is_mounted(Path::new(&mount))? {
-                umount2(Path::new(&mount), MntFlags::MNT_DETACH)?;
-            }
+    for mount_path in &config.mutable_dirs_shared {
+        if !allow_dir_mut(mount_path) {
+            return Err(Error::new(ErrorKind::InvalidInput,
+                                  format!("Please insert valid value for mutable_dirs_shared in /.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot)));
+        }
+        let mount = format!("/.snapshots/rootfs/snapshot-chr{}/{}", snapshot, mount_path);
+        if is_mounted(Path::new(&mount))? {
+            umount2(Path::new(&mount), MntFlags::MNT_DETACH)?;
         }
     }
 
@@ -3313,36 +3291,89 @@ pub fn snapshot_config_edit(snapshot: &str) -> Result<(), Error> {
     Ok(())
 }
 
-// Get per-snapshot configuration options
-pub fn snapshot_config_get(snapshot: &str) -> HashMap<String, String> {
-    let mut options = HashMap::new();
+// Typed view of /etc/dsnap/dsnap.conf.
+//
+// On-disk format is unchanged: `key::value` lines, `,`/`::`-separated path
+// lists, and `#` comments. This replaces the repeated split loops in callers.
+#[derive(Debug, Clone)]
+pub struct SnapshotConfig {
+    pub aur: bool,
+    pub mutable_dirs: Vec<String>,
+    pub mutable_dirs_shared: Vec<String>,
+}
 
-    // Defaults here
-    #[cfg(feature = "pacman")]
-    options.insert(String::from("aur"), String::from("False"));
-    options.insert(String::from("mutable_dirs"), String::new());
-    options.insert(String::from("mutable_dirs_shared"), String::from("var"));
-
-    let path = format!("/.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot);
-    let Ok(optfile) = File::open(&path) else {
-        return options;
-    };
-    let reader = BufReader::new(optfile);
-
-    for line in reader.lines() {
-        let Ok(mut line) = line else {
-            continue;
-        };
-        // Skip line if there's no option set
-        if comment_after_hash(&mut line).contains("::") {
-            if let Some((left, right)) = line.split_once("::") {
-                // Remove inline comments and trailing whitespace/newline
-                let mut value = right.trim_end().to_string();
-                value = comment_after_hash(&mut value).trim_end().to_string();
-                options.insert(left.to_string(), value);
-            }
+impl Default for SnapshotConfig {
+    fn default() -> Self {
+        Self {
+            aur: false,
+            mutable_dirs: Vec::new(),
+            mutable_dirs_shared: vec!["var".to_string()],
         }
     }
+}
+
+impl SnapshotConfig {
+    fn parse_dirs(value: &str) -> Vec<String> {
+        value.split(',')
+             .flat_map(|item| item.split("::"))
+             .map(str::trim)
+             .filter(|part| !part.is_empty())
+             .map(String::from)
+             .collect()
+    }
+
+    pub fn load(snapshot: &str) -> Result<Self, Error> {
+        let mut config = Self::default();
+        let path = format!("/.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot);
+        let file = match File::open(&path) {
+            Ok(file) => file,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(config),
+            Err(e) => return Err(e),
+        };
+
+        for line in BufReader::new(file).lines() {
+            let mut line = line?;
+            let line = comment_after_hash(&mut line).trim();
+            let Some((key, value)) = line.split_once("::") else { continue; };
+            let key = key.trim();
+            let mut value = value.trim_end().to_string();
+            let value = comment_after_hash(&mut value).trim().to_string();
+
+            match key {
+                "aur" => {
+                    config.aur = match value.to_ascii_lowercase().as_str() {
+                        "true" => true,
+                        "false" => false,
+                        other => return Err(Error::new(ErrorKind::InvalidData,
+                            format!("Invalid aur value '{}' in {}", other, path))),
+                    };
+                }
+                "mutable_dirs" => config.mutable_dirs = Self::parse_dirs(&value),
+                "mutable_dirs_shared" => config.mutable_dirs_shared = Self::parse_dirs(&value),
+                unknown => eprintln!("Ignoring unknown dsnap config key '{}' in {}", unknown, path),
+            }
+        }
+        Ok(config)
+    }
+}
+
+pub fn snapshot_config(snapshot: &str) -> Result<SnapshotConfig, Error> {
+    SnapshotConfig::load(snapshot)
+}
+
+// Get per-snapshot configuration options
+pub fn snapshot_config_get(snapshot: &str) -> HashMap<String, String> {
+    // Compatibility wrapper for callers not yet migrated.
+    let config = snapshot_config(snapshot).unwrap_or_else(|e| {
+        eprintln!("Failed to read snapshot {} configuration: {}", snapshot, e);
+        SnapshotConfig::default()
+    });
+    let mut options = HashMap::new();
+    #[cfg(feature = "pacman")]
+    options.insert(String::from("aur"),
+                   String::from(if config.aur { "True" } else { "False" }));
+    options.insert(String::from("mutable_dirs"), config.mutable_dirs.join(","));
+    options.insert(String::from("mutable_dirs_shared"), config.mutable_dirs_shared.join(","));
     options
 }
 

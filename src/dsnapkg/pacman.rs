@@ -1,6 +1,6 @@
 use crate::{cp_reflink, cp_reflink_no_clobber,check_profile, check_mutability, chr_delete, chroot_exec, get_current_snapshot, get_tmp,
             grub, immutability_disable, immutability_enable, is_system_pkg, is_system_locked,
-            post_transactions, prepare, remove_dir_content, snapshot_config_get, sync_time};
+            post_transactions, prepare, remove_dir_content, snapshot_config, sync_time};
 
 use configparser::ini::{Ini, WriteOptions};
 use rustix::path::Arg;
@@ -14,13 +14,7 @@ use users::os::unix::UserExt;
 
 // Check if AUR is setup right
 pub fn aur_check(snapshot: &str) -> Result<bool, Error> {
-    let options = snapshot_config_get(snapshot);
-    match options.get("aur").map(|value| value.as_str()) {
-        Some("True") => Ok(true),
-        Some("False") => Ok(false),
-        _ => Err(Error::new(ErrorKind::InvalidData,
-                            format!("Please insert valid value for aur in /.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot))),
-    }
+    Ok(snapshot_config(snapshot)?.aur)
 }
 
 // Noninteractive update
