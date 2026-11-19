@@ -17,11 +17,10 @@ pub fn distro_id() -> String {
     if let Ok(file) = read_to_string("/etc/lsb-release") {
         for line in file.lines() {
             if line.starts_with("DISTRIB_ID=") {
-                distro_id = line.split('=').nth(1).unwrap()
-                                                  .to_lowercase()
-                                                  .trim_matches('"')
-                                                  .to_string();
-                break;
+                if let Some((_, value)) = line.split_once('=') {
+                    distro_id = value.to_lowercase().trim_matches('"').to_string();
+                    break;
+                }
             }
         }
     }
@@ -31,11 +30,10 @@ pub fn distro_id() -> String {
         if let Ok(file) = read_to_string("/etc/os-release") {
             for line in file.lines() {
                 if line.starts_with("ID=") {
-                    distro_id = line.split('=').nth(1).unwrap()
-                                                      .to_lowercase()
-                                                      .trim_matches('"')
-                                                      .to_string();
-                    break;
+                    if let Some((_, value)) = line.split_once('=') {
+                        distro_id = value.to_lowercase().trim_matches('"').to_string();
+                        break;
+                    }
                 }
             }
         }
@@ -81,8 +79,10 @@ pub fn distro_name(snapshot: &str) -> String {
     if let Ok(file) = read_to_string(format!("/.snapshots/rootfs/snapshot-chr{}/etc/os-release", snapshot)) {
         for line in file.lines() {
             if line.starts_with("NAME=") {
-                distro_name = line.split('=').nth(1).unwrap().trim_matches('"').to_string();
-                break;
+                if let Some((_, value)) = line.split_once('=') {
+                    distro_name = value.trim_matches('"').to_string();
+                    break;
+                }
             }
         }
     }
@@ -92,8 +92,10 @@ pub fn distro_name(snapshot: &str) -> String {
         if let Ok(file) = read_to_string(format!("/.snapshots/rootfs/snapshot-chr{}/etc/lsb-release", snapshot)) {
             for line in file.lines() {
                 if line.starts_with("DISTRIB_DESCRIPTION=") {
-                    distro_name = line.split('=').nth(1).unwrap().split(' ').nth(0).unwrap().trim_matches('"').to_string();
-                    break;
+                    if let Some((_, value)) = line.split_once('=') {
+                        distro_name = value.split(' ').next().unwrap_or("").trim_matches('"').to_string();
+                        break;
+                    }
                 }
             }
         }
