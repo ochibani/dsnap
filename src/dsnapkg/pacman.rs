@@ -122,7 +122,7 @@ pub fn bootstrap(snapshot: &str) -> Result<(), Error> {
     let excode = Command::new("sh")
         .arg("-c")
         .arg(format!("pacman --dbpath {} -r /.snapshots/rootfs/snapshot-chr{} -Sy --noconfirm --overwrite '*' base",
-                     tmp_db.path().to_str().unwrap(),snapshot)).status()?;
+                     tmp_db.path().to_string_lossy(),snapshot)).status()?;
     if !excode.success() {
         return Err(Error::new(ErrorKind::Other,
                               format!("Failed to install base packages in snapshot {} chroot.", snapshot)));
@@ -131,7 +131,7 @@ pub fn bootstrap(snapshot: &str) -> Result<(), Error> {
     let paru_install = Command::new("sh")
         .arg("-c")
         .arg(format!("su aur -c 'paru --dbpath {} -r /.snapshots/rootfs/snapshot-chr{} -Sy --noconfirm --overwrite \"*\" paru'", //TODO replace paru with dsnap
-                     tmp_db.path().to_str().unwrap(),snapshot)).status()?;
+                     tmp_db.path().to_string_lossy(),snapshot)).status()?;
     if !paru_install.success() {
         return Err(Error::new(ErrorKind::Other,
                               format!("Failed to install paru package in snapshot {} chroot.", snapshot)));
@@ -139,7 +139,7 @@ pub fn bootstrap(snapshot: &str) -> Result<(), Error> {
 
     // Copy pacman database from tmp
     remove_dir_content(&format!("/.snapshots/rootfs/snapshot-chr{}/var/lib/pacman", snapshot))?;
-    cp_reflink(format!("{}/.", tmp_db.path().to_str().unwrap()),
+    cp_reflink(format!("{}/.", tmp_db.path().to_string_lossy()),
                format!("/.snapshots/rootfs/snapshot-chr{}/var/lib/pacman", snapshot))?;
     Ok(())
 }
@@ -249,7 +249,7 @@ pub fn fix_package_db(snapshot: &str) -> Result<(), Error> {
             if Path::new("/var/lib/pacman/sync").try_exists()? && read_dir("/var/lib/pacman/sync")?.count() > 0 {
                 cmds.push(format!("rm -r /var/lib/pacman/sync/*"));
             }
-            cmds.push(format!("sudo -u {} gpg --refresh-keys", username.to_str().unwrap()));
+            cmds.push(format!("sudo -u {} gpg --refresh-keys", username.to_string_lossy()));
             cmds.push(format!("pacman-key --init"));
             cmds.push(format!("pacman-key --populate archlinux"));
         }
