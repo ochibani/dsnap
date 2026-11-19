@@ -385,7 +385,7 @@ fn check_profile(snapshot: &str) -> Result<(), Error> {
                     return Err(Error::new(ErrorKind::Unsupported, "Remove system package(s) is not allowed.".to_string()));
                 }
             }
-            profconf.pretty_write(&cfile, &write_options)?;
+            profile_write(&cfile, &profconf, &write_options)?;
         }
         if profconf.sections().contains(&"profile-packages".to_string()) {
             for prof_pkg in section_keys(&profconf, "profile-packages") {
@@ -395,12 +395,12 @@ fn check_profile(snapshot: &str) -> Result<(), Error> {
                     pkgs.push(prof_pkg);
                 }
             }
-            profconf.pretty_write(&cfile, &write_options)?;
+            profile_write(&cfile, &profconf, &write_options)?;
         }
         if !pkgs.contains(pkg) {
             profconf.set("profile-packages", pkg, None);
         }
-        profconf.pretty_write(&cfile, &write_options)?;
+        profile_write(&cfile, &profconf, &write_options)?;
     }
 
     // Check services
@@ -410,7 +410,7 @@ fn check_profile(snapshot: &str) -> Result<(), Error> {
                 profconf.remove_key("enable-services", &service);
             }
         }
-        profconf.pretty_write(&cfile, &write_options)?;
+        profile_write(&cfile, &profconf, &write_options)?;
     }
     if profconf.sections().contains(&"disable-services".to_string()) {
         for service in section_keys(&profconf, "disable-services") {
@@ -418,7 +418,7 @@ fn check_profile(snapshot: &str) -> Result<(), Error> {
                 profconf.remove_key("disable-services", &service);
             }
         }
-        profconf.pretty_write(&cfile, &write_options)?;
+        profile_write(&cfile, &profconf, &write_options)?;
     }
 
     // Prevent duplication
@@ -428,7 +428,7 @@ fn check_profile(snapshot: &str) -> Result<(), Error> {
             profconf.remove_key("profile-packages", pkg);
         }
     }
-    profconf.pretty_write(&cfile, &write_options)?;
+    profile_write(&cfile, &profconf, &write_options)?;
 
     // Block automatic removal of system packages
     lockpkg(snapshot, &profconf)?;
@@ -3208,6 +3208,114 @@ pub fn snapshot_base_new(desc: &str) -> Result<i32, Error> {
         write_desc(&i.to_string(), desc, true)?;
     }
     Ok(i)
+}
+
+// configparser discards comments when it loads an INI file. Capture the
+// comments from the file on disk and re-attach them to their section or key
+// after the INI has been re-serialized, so profile edits never lose them.
+fn restore_profile_comments(old: &str, new: &str) -> String {
+    let mut before_section: HashMap<String, Vec<String>> = HashMap::new();
+    let mut before_key: HashMap<(String, String), Vec<String>> = HashMap::new();
+    let mut inline: HashMap<(String, String), String> = HashMap::new();
+    let mut header: Vec<String> = Vec::new();
+    let footer: Vec<String>;
+    let mut pending: Vec<String> = Vec::new();
+    let mut section = String::new();
+
+    for raw in old.lines() {
+        let trimmed = raw.trim();
+        if trimmed.starts_with('#') {
+            pending.push(raw.to_string());
+            continue;
+        }
+        if trimmed.is_empty() || raw.starts_with(char::is_whitespace) {
+            continue;
+        }
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            let header_text = trimmed.to_string();
+            if section.is_empty() {
+                header.append(&mut pending);
+            } else {
+                before_section.insert(header_text.clone(), std::mem::take(&mut pending));
+            }
+            section = header_text[1..header_text.len() - 1].to_string();
+            continue;
+        }
+        let (code, comment) = match trimmed.find('#') {
+            Some(i) => (trimmed[..i].trim_end(), Some(trimmed[i..].to_string())),
+            None => (trimmed, None),
+        };
+        let key = code.split_once('=').map(|p| p.0).unwrap_or(code).trim().to_string();
+        let anchor = (section.clone(), key);
+        if let Some(c) = comment {
+            inline.insert(anchor.clone(), c);
+        }
+        before_key.insert(anchor, std::mem::take(&mut pending));
+    }
+    footer = pending;
+
+    // Comments attached to a key that was removed are kept under its section.
+    let mut new_section = String::new();
+    let mut new_keys: Vec<(String, String)> = Vec::new();
+    for raw in new.lines() {
+        let trimmed = raw.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            new_section = trimmed[1..trimmed.len() - 1].to_string();
+        } else if !trimmed.is_empty() && !raw.starts_with(char::is_whitespace) {
+            let key = trimmed.split_once('=').map(|p| p.0).unwrap_or(trimmed).trim().to_string();
+            new_keys.push((new_section.clone(), key));
+        }
+    }
+    let mut orphans: HashMap<String, Vec<String>> = HashMap::new();
+    for ((sec, key), comments) in &before_key {
+        if !new_keys.contains(&(sec.clone(), key.clone())) && !comments.is_empty() {
+            orphans.entry(sec.clone()).or_default().extend(comments.iter().cloned());
+        }
+    }
+
+    let mut out: Vec<String> = Vec::new();
+    out.extend(header);
+    let mut sec = String::new();
+    for raw in new.lines() {
+        let trimmed = raw.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            if let Some(cs) = before_section.get(trimmed) {
+                out.extend(cs.iter().cloned());
+            }
+            let name = trimmed[1..trimmed.len() - 1].to_string();
+            if let Some(cs) = orphans.remove(&name) {
+                out.extend(cs);
+            }
+            sec = name;
+            out.push(raw.to_string());
+            continue;
+        }
+        if trimmed.is_empty() || raw.starts_with(char::is_whitespace) {
+            out.push(raw.to_string());
+            continue;
+        }
+        let key = trimmed.split_once('=').map(|p| p.0).unwrap_or(trimmed).trim().to_string();
+        let anchor = (sec.clone(), key);
+        if let Some(cs) = before_key.get(&anchor) {
+            out.extend(cs.iter().cloned());
+        }
+        if let Some(c) = inline.get(&anchor) {
+            out.push(format!("{} {}", raw.trim_end(), c));
+        } else {
+            out.push(raw.to_string());
+        }
+    }
+    out.extend(footer);
+    let mut result = out.join("\n");
+    result.push('\n');
+    result
+}
+
+// Drop-in replacement for Ini::pretty_write() that keeps user comments.
+pub fn profile_write(cfile: &str, profconf: &Ini, write_options: &WriteOptions) -> Result<(), Error> {
+    let old = read_to_string(cfile).unwrap_or_default();
+    let new = profconf.pretty_writes(write_options);
+    std::fs::write(cfile, restore_profile_comments(&old, &new))
 }
 
 // Edit per-snapshot configuration

@@ -1,6 +1,6 @@
 use crate::{cp_reflink, cp_reflink_no_clobber,check_profile, chr_delete, chroot_exec, get_tmp, grub, is_system_pkg,
             is_system_locked, post_transactions, prepare,
-            remove_dir_content, sync_time};
+            remove_dir_content, profile_write, sync_time};
 
 use configparser::ini::{Ini, WriteOptions};
 use rustix::path::Arg;
@@ -159,7 +159,7 @@ pub fn install_package_helper(snapshot:&str, pkgs: &Vec<String>, noconfirm: bool
                 profconf.remove_key("profile-packages", &key);
                 profconf.set("profile-packages", &key, None);
             }
-            profconf.pretty_write(&cfile, &write_options)?;
+            profile_write(&cfile, &profconf, &write_options)?;
         }
     }
     Ok(())
@@ -502,10 +502,10 @@ pub fn uninstall_package_helper(snapshot: &str, pkgs: &Vec<String>, noconfirm: b
                                   format!("Failed to uninstall {}", pkg)));
             } else if pkgs_list.contains(pkg) {
                 profconf.remove_key("profile-packages", &pkg);
-                profconf.pretty_write(&cfile, &write_options)?;
+                profile_write(&cfile, &profconf, &write_options)?;
             } else if is_system_pkg(&profconf, pkg.to_string()) {
                 profconf.remove_key("system-packages", &pkg);
-                profconf.pretty_write(&cfile, &write_options)?;
+                profile_write(&cfile, &profconf, &write_options)?;
             }
         } else if is_system_locked() && is_system_pkg(&profconf, pkg.to_string()){
             return Err(Error::new(ErrorKind::Unsupported,
