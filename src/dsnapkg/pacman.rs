@@ -13,16 +13,13 @@ use users::get_user_by_name;
 use users::os::unix::UserExt;
 
 // Check if AUR is setup right
-pub fn aur_check(snapshot: &str) -> bool {
+pub fn aur_check(snapshot: &str) -> Result<bool, Error> {
     let options = snapshot_config_get(snapshot);
-    if options["aur"] == "True" {
-        let aur = true;
-        return aur;
-    } else if options["aur"] == "False" {
-        let aur = false;
-        return aur;
-    } else {
-        panic!("Please insert valid value for aur in /.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot);
+    match options.get("aur").map(|value| value.as_str()) {
+        Some("True") => Ok(true),
+        Some("False") => Ok(false),
+        _ => Err(Error::new(ErrorKind::InvalidData,
+                            format!("Please insert valid value for aur in /.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot))),
     }
 }
 
@@ -49,7 +46,7 @@ pub fn auto_upgrade(snapshot: &str) -> Result<(), Error> {
             return Err(Error::new(ErrorKind::Other, "Failed to refresh archlinux-keyring."));
         }
 
-        if !aur_check(snapshot) {
+        if !aur_check(snapshot)? {
             // Use pacman
             let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-chr{}", snapshot))
                                                .args(["pacman", "--noconfirm", "-Syyu"]).status()?;
@@ -337,7 +334,7 @@ pub fn install_package_helper(snapshot:&str, pkgs: &Vec<String>, noconfirm: bool
                 }
                 profconf.pretty_write(&cfile, &write_options)?;
             }
-        } else if aur_check(snapshot) {
+        } else if aur_check(snapshot)? {
             // Use paru if aur is enabled
             let paru_args = if noconfirm {
                 format!("paru -S --noconfirm --needed --overwrite '/var/*' {}", pkg)
@@ -362,7 +359,7 @@ pub fn install_package_helper(snapshot:&str, pkgs: &Vec<String>, noconfirm: bool
                 }
                 profconf.pretty_write(&cfile, &write_options)?;
             }
-        } else if !aur_check(snapshot) {
+        } else if !aur_check(snapshot)? {
             return Err(Error::new(ErrorKind::NotFound,
                                   "Please enable AUR."));
         }
@@ -395,7 +392,7 @@ pub fn install_package_helper_chroot(snapshot:&str, pkgs: &Vec<String>, noconfir
                 return Err(Error::new(ErrorKind::Other,
                                       format!("Failed to install {}", pkg)));
             }
-        } else if aur_check(snapshot) {
+        } else if aur_check(snapshot)? {
             // Use paru if aur is enabled
             let paru_args = if noconfirm {
                 format!("paru -Sy --noconfirm --needed --overwrite \"*\" {}", pkg)
@@ -411,7 +408,7 @@ pub fn install_package_helper_chroot(snapshot:&str, pkgs: &Vec<String>, noconfir
                 return Err(Error::new(ErrorKind::Other,
                                       format!("Failed to install {}", pkg)));
             }
-        } else if !aur_check(snapshot) {
+        } else if !aur_check(snapshot)? {
             return Err(Error::new(ErrorKind::NotFound,
                                   "Please enable AUR."));
         }
@@ -447,7 +444,7 @@ pub fn install_package_helper_live(snapshot: &str, tmp: &str, pkgs: &Vec<String>
                 return Err(Error::new(ErrorKind::Other,
                                       format!("Failed to install {}", pkg)));
             }
-        } else if aur_check(snapshot) {
+        } else if aur_check(snapshot)? {
             // Use paru if aur is enabled
             let paru_args = if noconfirm {
                 format!("paru -Sy --noconfirm --overwrite '*' {}", pkg)
@@ -463,7 +460,7 @@ pub fn install_package_helper_live(snapshot: &str, tmp: &str, pkgs: &Vec<String>
                 return Err(Error::new(ErrorKind::Other,
                                       format!("Failed to install {}", pkg)));
             }
-        } else if !aur_check(snapshot) {
+        } else if !aur_check(snapshot)? {
             // Not an official package and AUR is not enabled: report the
             // same error as the non-live helper instead of silently
             // succeeding
@@ -879,7 +876,7 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
     Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-chr{}", snapshot))
                           .args(pacman_args)
                           .status()?;
-    if !aur_check(snapshot) {
+    if !aur_check(snapshot)? {
         let pacman_args: &[&str] = if noconfirm {
             &["pacman", "--noconfirm", "-Syyu"]
         } else {
@@ -923,7 +920,7 @@ pub fn upgrade_helper_live(tmp: &str, noconfirm: bool) -> Result<(), Error> {
     Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-{}", tmp))
                           .args(pacman_args)
                           .status()?;
-    if !aur_check(tmp) {
+    if !aur_check(tmp)? {
         let pacman_args: &[&str] = if noconfirm {
             &["pacman", "--noconfirm", "-Syyu"]
         } else {

@@ -2112,7 +2112,7 @@ fn install_profile(snapshot: &str, profile: &str, force: bool, secondary: bool,
         // Read presets section in configuration file
         #[cfg(feature = "pacman")]
         if profconf.sections().contains(&"presets".to_string()) {
-            if !aur_check(snapshot) {
+            if !aur_check(snapshot)? {
                 return Err(Error::new(ErrorKind::Unsupported,
                                       "Please enable AUR.".to_string()));
             }
@@ -2228,7 +2228,7 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
         // Read presets section in configuration file
         #[cfg(feature = "pacman")]
         if profconf.sections().contains(&"presets".to_string()) {
-            if !aur_check(snapshot) {
+            if !aur_check(snapshot)? {
                 return Err(Error::new(ErrorKind::Unsupported,
                                       "Please enable AUR.".to_string()));
             }
