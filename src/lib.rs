@@ -1662,7 +1662,8 @@ pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir) -> Resul
         ctrlc::set_handler(move || {
             // Set the interrupted flag to true if the signal is received
             interrupted_clone.store(true, Ordering::SeqCst);
-        }).expect("Error setting Ctrl+C handler");
+        }).map_err(|e| Error::new(ErrorKind::Other,
+                                format!("Error setting Ctrl+C handler: {}", e)))?;
 
         let tmp_path = tmp_dir.path().to_string_lossy().to_string();
 
@@ -1848,7 +1849,8 @@ pub fn import_base(path: &str, tmp_dir: &TempDir) -> Result<String, Error> {
         ctrlc::set_handler(move || {
             // Set the interrupted flag to true if the signal is received
             interrupted_clone.store(true, Ordering::SeqCst);
-        }).expect("Error setting Ctrl+C handler");
+        }).map_err(|e| Error::new(ErrorKind::Other,
+                                format!("Error setting Ctrl+C handler: {}", e)))?;
 
         let tmp_path = tmp_dir.path().to_string_lossy().to_string();
 
