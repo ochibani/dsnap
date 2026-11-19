@@ -3,12 +3,25 @@ use crate::{chroot_exec, deploy_recovery, detect_distro, get_aux_tmp, get_part, 
 
 use chrono::{Local, NaiveDateTime};
 use nix::mount::{MntFlags, mount, MsFlags, umount2};
-use std::fs::{copy, DirBuilder, File, OpenOptions};
+use std::fs::{copy, DirBuilder, File};
 use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Write};
 use std::path::Path;
 use std::process::Command;
-use tempfile::TempDir;
+use tempfile::{NamedTempFile, TempDir};
 use walkdir::WalkDir;
+
+// Replace a file atomically so interrupted writes cannot leave it truncated.
+fn atomic_write(path: &Path, content: &str) -> Result<(), Error> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("/"));
+    let mut tmp = NamedTempFile::new_in(parent)?;
+    tmp.write_all(content.as_bytes())?;
+    tmp.as_file().sync_all()?;
+    if let Ok(meta) = std::fs::metadata(path) {
+        std::fs::set_permissions(tmp.path(), meta.permissions())?;
+    }
+    tmp.persist(path).map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+    Ok(())
+}
 
 // Mount the boot subvolume for the duration of a GRUB write operation.
 // Drop always unmounts, including on early returns, so no mount is leaked.
@@ -164,16 +177,14 @@ pub fn switch_recovery_tmp(snapshot: &str, target_snapshot: &str) -> Result<(), 
             ngrub_cfg.push_str(&format!("\n{}",&line));
         }
     }
-    let mut gfile = File::create(&grub_cfg)?;
-    gfile.write_all(ngrub_cfg.as_bytes())?;
+    atomic_write(Path::new(&grub_cfg), &ngrub_cfg)?;
 
     // Remove END of 41_custom
     let mut contents = String::new();
     let mut sfile = File::open(&grub_cfg)?;
     sfile.read_to_string(&mut contents)?;
     let modified_grub_contents = contents.replace("### END /etc/grub.d/41_custom ###", "");
-    let mut nfile = File::create(&grub_cfg)?;
-    nfile.write_all(modified_grub_contents.as_bytes())?;
+    atomic_write(Path::new(&grub_cfg), &modified_grub_contents)?;
 
     // Change recovery tmp
     let updated_line = if let Some(first_quote_index) = gconf.find('\'') {
@@ -214,11 +225,10 @@ pub fn switch_recovery_tmp(snapshot: &str, target_snapshot: &str) -> Result<(), 
     };
 
     // Write the modified contents back to the file
-    let mut file = OpenOptions::new().append(true)
-                                     .create(true)
-                                     .read(true)
-                                     .open(grub_cfg)?;
-    file.write_all(modified_cfg_contents.as_bytes())?;
+    let mut cfg = String::new();
+    File::open(&grub_cfg)?.read_to_string(&mut cfg)?;
+    cfg.push_str(&modified_cfg_contents);
+    atomic_write(Path::new(&grub_cfg), &cfg)?;
 
     Ok(())
 }
@@ -258,8 +268,7 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
     let modified_rootfs_contents = modified_var_contents.replace(&format!("@.snapshots_linux/rootfs/snapshot-{}", source_dep),
                                                                  &format!("@.snapshots_linux/rootfs/snapshot-{}", target_dep));
     // Write the modified contents back to the file
-    let mut file = File::create(fstab_file)?;
-    file.write_all(modified_rootfs_contents.as_bytes())?;
+    atomic_write(Path::new(&fstab_file), &modified_rootfs_contents)?;
 
     // Recovery GRUB configurations
     if !reset {
@@ -295,14 +304,12 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
             let mut sfile = File::open(&grub_path)?;
             sfile.read_to_string(&mut contents)?;
             let modified_grub_contents = contents.replace("### END /etc/grub.d/41_custom ###", "");
-            let mut nfile = File::create(&grub_path)?;
-            nfile.write_all(modified_grub_contents.as_bytes())?;
+            atomic_write(Path::new(&grub_path), &modified_grub_contents)?;
 
-            // Open the file in read and write mode
-            let mut file = OpenOptions::new().read(true).write(true).append(true).open(&grub_path)?;
-
-            // Write the modified content back to the file
-            file.write_all(format!("\n\n{}", &gconf).as_bytes())?;
+            let mut cfg = String::new();
+            File::open(&grub_path)?.read_to_string(&mut cfg)?;
+            cfg.push_str(&format!("\n\n{}", &gconf));
+            atomic_write(Path::new(&grub_path), &cfg)?;
 
             // Add recovery mode
             if Path::new(&format!("/.snapshots/rootfs/snapshot-{}", rec_tmp)).try_exists()? {
@@ -311,8 +318,7 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
                 let mut sfile = File::open(&grub_path)?;
                 sfile.read_to_string(&mut contents)?;
                 let modified_grub_contents = contents.replace("### END /etc/grub.d/41_custom ###", "");
-                let mut nfile = File::create(&grub_path)?;
-                nfile.write_all(modified_grub_contents.as_bytes())?;
+                atomic_write(Path::new(&grub_path), &modified_grub_contents)?;
 
                 let updated_line = if let Some(first_quote_index) = gconf.find('\'') {
                     if let Some(rel) = gconf[first_quote_index + 1..].find('\'') {
@@ -329,11 +335,10 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
                 let gconf = updated_line.replace(&format!("@.snapshots_linux/rootfs/snapshot-{}", source_dep),
                                                  &format!("@.snapshots_linux/rootfs/snapshot-{}", rec_tmp));
 
-                // Open the file in read and write mode
-                let mut file = OpenOptions::new().read(true).write(true).append(true).open(&grub_path)?;
-
-                // Write the modified content back to the file
-                file.write_all(format!("\n\n{}", &gconf).as_bytes())?;
+                let mut cfg = String::new();
+                File::open(&grub_path)?.read_to_string(&mut cfg)?;
+                cfg.push_str(&format!("\n\n{}", &gconf));
+                atomic_write(Path::new(&grub_path), &cfg)?;
             } else {
                 deploy_recovery(snapshot)?;
             }
