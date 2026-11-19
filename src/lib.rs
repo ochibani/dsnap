@@ -2809,38 +2809,30 @@ pub fn prepare(snapshot: &str) -> Result<(), Error> {
 }
 
 // Show tmp partition state
-pub fn print_tmp() -> String {
+pub fn print_tmp() -> Result<String, Error> {
     // By default just return which deployment is running
-    let file = File::open("/proc/mounts").unwrap();
-    let reader = BufReader::new(file);
-    let mount: Vec<String> = reader.lines().filter_map(|line| {
-        let line = line.unwrap();
-        #[cfg(feature = "btrfs")]
-        if line.contains(" / btrfs") {
-            Some(line)
-        } else {
-            None
-        }
-    })
-    .collect();
+    let mounts = read_to_string("/proc/mounts")?;
+    let mount: Vec<&str> = mounts
+        .lines()
+        .filter(|line| {
+            #[cfg(feature = "btrfs")]
+            { line.contains(" / btrfs") }
+            #[cfg(not(feature = "btrfs"))]
+            { let _ = line; false }
+        })
+        .collect();
     if mount.iter().any(|element| element.contains("recovery-deploy-aux")) {
-        let r = String::from("recovery-deploy-aux");
-        return r;
-     } else if mount.iter().any(|element| element.contains("recovery-deploy")) {
-        let r = String::from("recovery-deploy");
-        return r;
-     } else if mount.iter().any(|element| element.contains("deploy-aux-secondary")) {
-        let r = String::from("deploy-aux-secondary");
-        return r;
+        Ok("recovery-deploy-aux".to_string())
+    } else if mount.iter().any(|element| element.contains("recovery-deploy")) {
+        Ok("recovery-deploy".to_string())
+    } else if mount.iter().any(|element| element.contains("deploy-aux-secondary")) {
+        Ok("deploy-aux-secondary".to_string())
     } else if mount.iter().any(|element| element.contains("deploy-secondary")) {
-        let r = String::from("deploy-secondary");
-        return r;
+        Ok("deploy-secondary".to_string())
     } else if mount.iter().any(|element| element.contains("deploy-aux")) {
-        let r = String::from("deploy-aux");
-        return r;
+        Ok("deploy-aux".to_string())
     } else {
-        let r = String::from("deploy");
-        return r;
+        Ok("deploy".to_string())
     }
 }
 

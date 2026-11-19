@@ -1298,7 +1298,10 @@ fn main() {
             // Which deployment is active
             Some(("whichtmp", _matches)) => {
                 // Run print_tmp
-                println!("{}", print_tmp());
+                match print_tmp() {
+                    Ok(tmp) => println!("{}", tmp),
+                    Err(e) => eprintln!("{}", e),
+                }
             }
            _=> unreachable!(), // If all subcommands called, anything else is unreachable
         }
