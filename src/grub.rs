@@ -19,6 +19,8 @@ fn chroot_command(root: &str, program: &str, args: &[&str]) -> Result<(), Error>
     Ok(())
 }
 
+const RECOVERY_TITLE: &str = "Recovery Mode";
+
 // Replace a file atomically so interrupted writes cannot leave it truncated.
 fn atomic_write(path: &Path, content: &str) -> Result<(), Error> {
     let parent = path.parent().unwrap_or_else(|| Path::new("/"));
@@ -72,6 +74,26 @@ fn replace_recovery_snapshot_paths(entry: &str, source_dep: &str, target_dep: &s
         let marker = format!("@.snapshots_linux/rootfs/snapshot-{}", candidate);
         if entry.contains(&marker) {
             return replace_snapshot_paths(entry, &candidate, target_dep);
+        }
+    }
+    entry.to_string()
+}
+
+// Replace the first quoted menuentry title while preserving quote style.
+fn replace_menuentry_title(entry: &str, title: &str) -> String {
+    for (idx, ch) in entry.char_indices() {
+        if ch == '\'' || ch == '"' {
+            let quote_len = ch.len_utf8();
+            let rest = &entry[idx + quote_len..];
+            if let Some(end_rel) = rest.find(ch) {
+                let end = idx + quote_len + end_rel;
+                return format!("{}{}{}{}",
+                               &entry[..idx + quote_len],
+                               title,
+                               ch,
+                               &entry[end + quote_len..]);
+            }
+            return entry.to_string();
         }
     }
     entry.to_string()
@@ -304,16 +326,7 @@ pub fn switch_recovery_tmp(snapshot: &str, target_snapshot: &str) -> Result<(), 
     atomic_write(Path::new(&grub_cfg), &remove_recovery_entries(&contents))?;
 
     // Change recovery tmp
-    let updated_line = if let Some(first_quote_index) = gconf.find('\'') {
-        if let Some(rel) = gconf[first_quote_index + 1..].find('\'') {
-            let second_quote_index = rel + first_quote_index + 1;
-            gconf.replace(&gconf[first_quote_index + 1..second_quote_index], "Recovery Snapshot")
-        } else {
-            gconf.clone()
-        }
-    } else {
-        gconf.clone()
-    };
+    let updated_line = replace_menuentry_title(&gconf, RECOVERY_TITLE);
     let modified_cfg_contents = replace_recovery_snapshot_paths(&updated_line, &source_dep, &target_dep);
 
     // Write the modified contents back to the file
@@ -374,16 +387,7 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
 
             // Add recovery mode
             if Path::new(&format!("/.snapshots/rootfs/snapshot-{}", rec_tmp)).try_exists()? {
-                let updated_line = if let Some(first_quote_index) = gconf.find('\'') {
-                    if let Some(rel) = gconf[first_quote_index + 1..].find('\'') {
-                        let second_quote_index = rel + first_quote_index + 1;
-                        gconf.replace(&gconf[first_quote_index + 1..second_quote_index], "Recovery Snapshot")
-                    } else {
-                        gconf.clone()
-                    }
-                } else {
-                    gconf.clone()
-                };
+                let updated_line = replace_menuentry_title(&gconf, RECOVERY_TITLE);
 
                 // Change recovery tmp
                 let gconf = replace_snapshot_paths(&updated_line, &source_dep, &rec_tmp);
