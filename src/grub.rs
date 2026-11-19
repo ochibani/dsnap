@@ -32,6 +32,51 @@ fn atomic_write(path: &Path, content: &str) -> Result<(), Error> {
     Ok(())
 }
 
+fn is_token_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '-' || ch == '_'
+}
+
+fn replace_snapshot_prefix(content: &str, from: &str, to: &str) -> String {
+    let mut out = String::new();
+    let mut rest = content;
+    while let Some(idx) = rest.find(from) {
+        let skip = idx + from.len();
+        let after = &rest[skip..];
+        if after.chars().next().map(is_token_char).unwrap_or(false) {
+            out.push_str(&rest[..skip]);
+            rest = &rest[skip..];
+            continue;
+        }
+        out.push_str(&rest[..idx]);
+        out.push_str(to);
+        rest = &rest[skip..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn replace_snapshot_paths(content: &str, from: &str, to: &str) -> String {
+    let mut result = content.to_string();
+    for kind in ["boot", "etc", "var", "rootfs"] {
+        let from_path = format!("@.snapshots_linux/{}/snapshot-{}", kind, from);
+        let to_path = format!("@.snapshots_linux/{}/snapshot-{}", kind, to);
+        result = replace_snapshot_prefix(&result, &from_path, &to_path);
+    }
+    result
+}
+
+fn replace_recovery_snapshot_paths(entry: &str, source_dep: &str, target_dep: &str) -> String {
+    let mut candidates = vec![source_dep.to_string(), get_recovery_aux_tmp(source_dep)];
+    candidates.sort_by(|a, b| b.len().cmp(&a.len()));
+    for candidate in candidates {
+        let marker = format!("@.snapshots_linux/rootfs/snapshot-{}", candidate);
+        if entry.contains(&marker) {
+            return replace_snapshot_paths(entry, &candidate, target_dep);
+        }
+    }
+    entry.to_string()
+}
+
 // Count unbalanced braces outside quotes and comments. GRUB menuentry bodies
 // can contain nested braces, so the first "}" is not necessarily the end.
 fn brace_delta(line: &str) -> i32 {
@@ -269,32 +314,7 @@ pub fn switch_recovery_tmp(snapshot: &str, target_snapshot: &str) -> Result<(), 
     } else {
         gconf.clone()
     };
-    // Replace the full snapshot token. "recovery-deploy" is a substring
-    // of "recovery-deploy-aux", so prefer the longer/more specific match
-    // to avoid producing "snapshot-recovery-deploy-aux-aux"
-    let modified_cfg_contents = if updated_line.contains(&format!("@.snapshots_linux/rootfs/snapshot-recovery-deploy-aux")) {
-        updated_line.replace("@.snapshots_linux/rootfs/snapshot-recovery-deploy-aux",
-                             &format!("@.snapshots_linux/rootfs/snapshot-{}", target_dep))
-    } else if updated_line.contains(&format!("@.snapshots_linux/rootfs/snapshot-recovery-deploy")) {
-        updated_line.replace("@.snapshots_linux/rootfs/snapshot-recovery-deploy",
-                             &format!("@.snapshots_linux/rootfs/snapshot-{}", target_dep))
-    } else if updated_line.contains(&format!("@.snapshots_linux/rootfs/snapshot-{}", source_dep)) {
-        updated_line.replace(&format!("@.snapshots_linux/rootfs/snapshot-{}", source_dep),
-                             &format!("@.snapshots_linux/rootfs/snapshot-{}", target_dep))
-    } else {
-        let src_tmp = if updated_line.contains("deploy-aux-secondary") {
-            "deploy-aux-secondary"
-        } else if updated_line.contains("deploy-aux") && !updated_line.contains("secondary") {
-            "deploy-aux"
-        } else if updated_line.contains("deploy-secondary") {
-            "deploy-secondary"
-        } else {
-            "deploy"
-        };
-
-        updated_line.replace(&format!("@.snapshots_linux/rootfs/snapshot-{}", src_tmp),
-                             &format!("@.snapshots_linux/rootfs/snapshot-{}", target_dep))
-    };
+    let modified_cfg_contents = replace_recovery_snapshot_paths(&updated_line, &source_dep, &target_dep);
 
     // Write the modified contents back to the file
     let mut cfg = String::new();
@@ -331,14 +351,7 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
     let mut contents = String::new();
     let mut file = File::open(&fstab_file)?;
     file.read_to_string(&mut contents)?;
-    let modified_boot_contents = contents.replace(&format!("@.snapshots_linux/boot/boot-{}", source_dep),
-                                                  &format!("@.snapshots_linux/boot/boot-{}", target_dep));
-    let modified_etc_contents = modified_boot_contents.replace(&format!("@.snapshots_linux/etc/etc-{}", source_dep),
-                                                               &format!("@.snapshots_linux/etc/etc-{}", target_dep));
-    let modified_var_contents = modified_etc_contents.replace(&format!("@.snapshots_linux/var/var-{}", source_dep),
-                                                               &format!("@.snapshots_linux/var/var-{}", target_dep));
-    let modified_rootfs_contents = modified_var_contents.replace(&format!("@.snapshots_linux/rootfs/snapshot-{}", source_dep),
-                                                                 &format!("@.snapshots_linux/rootfs/snapshot-{}", target_dep));
+    let modified_rootfs_contents = replace_snapshot_paths(&contents, &source_dep, &target_dep);
     // Write the modified contents back to the file
     atomic_write(Path::new(&fstab_file), &modified_rootfs_contents)?;
 
@@ -373,8 +386,7 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
                 };
 
                 // Change recovery tmp
-                let gconf = updated_line.replace(&format!("@.snapshots_linux/rootfs/snapshot-{}", source_dep),
-                                                 &format!("@.snapshots_linux/rootfs/snapshot-{}", rec_tmp));
+                let gconf = replace_snapshot_paths(&updated_line, &source_dep, &rec_tmp);
 
                 let mut contents = String::new();
                 File::open(&grub_path)?.read_to_string(&mut contents)?;
