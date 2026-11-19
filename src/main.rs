@@ -442,7 +442,10 @@ fn main() {
                 let snapshot2 = format!("{}", snap2);
 
                 // Run diff
-                diff(&snapshot1, &snapshot2);
+                match diff(&snapshot1, &snapshot2) {
+                    Ok(_) => (),
+                    Err(e) => eprintln!("{}", e),
+                }
             }
             // Edit dsnap configuration
             Some(("edit", edit_matches)) => {

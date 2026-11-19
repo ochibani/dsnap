@@ -330,25 +330,36 @@ pub fn lockpkg(snapshot:&str, profconf: &Ini) -> Result<(), Error> {
 }
 
 // Get list of installed packages and exclude packages installed as dependencies
-pub fn no_dep_pkg_list(snapshot: &str, chr: &str) -> Vec<String> {
-    let dpkg_query = "dpkg-query -W $(apt-mark showmanual) | awk '{print $1}' | sed 's/:.*$//'";
+pub fn no_dep_pkg_list(snapshot: &str, chr: &str) -> Result<Vec<String>, Error> {
     let excode = Command::new("sh").arg("-c")
                                    .arg(format!("chroot /.snapshots/rootfs/snapshot-{}{} {}", chr,snapshot,dpkg_query))
-                                   .output().unwrap();
+                                   .output()?;
+    if !excode.status.success() {
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Failed to list packages: {}",
+                                      String::from_utf8_lossy(&excode.stderr).trim())));
+    }
     let stdout = String::from_utf8_lossy(&excode.stdout).trim().to_string();
-    stdout.split('\n').map(|s| s.to_string()).collect()
+    Ok(stdout.split('\n').map(|s| s.to_string()).collect())
 }
 
 // Get list of packages installed in a snapshot
-pub fn pkg_list(snapshot: &str, chr: &str) -> Vec<String> {
-    prepare(snapshot).unwrap();
-    let dpkg_query = "dpkg-query -W -f='${Package}\n'";
-    let excode = Command::new("sh").arg("-c")
+pub fn pkg_list(snapshot: &str, chr: &str) -> Result<Vec<String>, Error> {
+    prepare(snapshot)?;
+    let output = Command::new("sh").arg("-c")
                                    .arg(format!("chroot /.snapshots/rootfs/snapshot-{}{} {}", chr,snapshot,dpkg_query))
-                                   .output().unwrap();
-    post_transactions(snapshot).unwrap();
+                                   .output();
+    // Always tear down the chroot, even when the query itself failed.
+    let cleanup = post_transactions(snapshot);
+    let excode = output?;
+    cleanup?;
+    if !excode.status.success() {
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Failed to list packages: {}",
+                                      String::from_utf8_lossy(&excode.stderr).trim())));
+    }
     let stdout = String::from_utf8_lossy(&excode.stdout).trim().to_string();
-    stdout.split('\n').map(|s| s.to_string()).collect()
+    Ok(stdout.split('\n').map(|s| s.to_string()).collect())
 }
 
 // Run dpkg-query

@@ -374,7 +374,7 @@ fn check_profile(snapshot: &str) -> Result<(), Error> {
     }
 
     // Check database
-    let pkg_list = no_dep_pkg_list(snapshot, "chr");
+    let pkg_list = no_dep_pkg_list(snapshot, "chr")?;
     for pkg in &pkg_list {
         let mut pkgs: Vec<String> = Vec::new();
         if profconf.sections().contains(&"system-packages".to_string()) {
@@ -1231,12 +1231,8 @@ pub fn deploy_recovery(snapshot: &str) -> Result<(), Error> {
 }
 
 // Show diff of packages
-pub fn diff(snapshot1: &str, snapshot2: &str) {
-    let diff = snapshot_diff(snapshot1, snapshot2);
-    match diff {
-        Ok(diff) => diff,
-        Err(e) => eprintln!("{}", e),
-    }
+pub fn diff(snapshot1: &str, snapshot2: &str) -> Result<(), Error> {
+    snapshot_diff(snapshot1, snapshot2)
 }
 
 // Switch between installed distributions by editing the EFI boot order
@@ -2422,12 +2418,8 @@ fn path_is_mounted_or_under(path: &Path) -> Result<bool, Error> {
 }
 
 // Return if package installed in snapshot
-pub fn is_pkg_installed(snapshot: &str, pkg: &str) -> bool {
-    if pkg_list(snapshot, "").contains(&pkg.to_string()) {
-        return true;
-    } else {
-        return false;
-    }
+pub fn is_pkg_installed(snapshot: &str, pkg: &str) -> Result<bool, Error> {
+    Ok(pkg_list(snapshot, "")?.contains(&pkg.to_string()))
 }
 
 // Check if system packages is locked
@@ -2451,11 +2443,11 @@ fn is_system_pkg(profconf: &Ini, pkg: String) -> bool {
 pub fn list(snapshot: &str, chr: &str, exclude: bool) -> Result<Vec<String>, Error> {
     let list = if exclude {
         prepare(snapshot)?;
-        let result = no_dep_pkg_list(snapshot, chr);
+        let result = no_dep_pkg_list(snapshot, chr)?;
         post_transactions(snapshot)?;
         result
     } else {
-        pkg_list(snapshot, chr)
+        pkg_list(snapshot, chr)?
     };
     Ok(list)
 }
@@ -3367,8 +3359,8 @@ pub fn snapshot_diff(snapshot1: &str, snapshot2: &str) -> Result<(), Error> {
                               format!("Snapshot {} not found.", snapshot2)));
 
     } else {
-        let snap1_pkgs = pkg_list(snapshot1, "");
-        let snap2_pkgs = pkg_list(snapshot2, "");
+        let snap1_pkgs = pkg_list(snapshot1, "")?;
+        let snap2_pkgs = pkg_list(snapshot2, "")?;
 
         // Collect the missing packages names
         let mut missing_pkgs: Vec<String> = Vec::new();
@@ -4297,7 +4289,7 @@ pub fn which_snapshot_has(pkgs: Vec<String>) -> Result<(), Error> {
     for pkg in pkgs {
         let mut snapshot: Vec<String> = Vec::new();
         for snap in &snapshots {
-            if is_pkg_installed(&snap.to_string(), &pkg) {
+            if is_pkg_installed(&snap.to_string(), &pkg)? {
                 snapshot.push(format!("{}", snap.to_string()));
             }
         }
