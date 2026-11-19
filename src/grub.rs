@@ -19,6 +19,8 @@ fn chroot_command(root: &str, program: &str, args: &[&str]) -> Result<(), Error>
     Ok(())
 }
 
+const RECOVERY_TITLE: &str = "Recovery Mode";
+
 // Replace a file atomically so interrupted writes cannot leave it truncated.
 fn atomic_write(path: &Path, content: &str) -> Result<(), Error> {
     let parent = path.parent().unwrap_or_else(|| Path::new("/"));
@@ -165,9 +167,12 @@ fn extract_first_menuentry(config: &str) -> Result<String, Error> {
 }
 
 fn is_recovery_menuentry(line: &str) -> bool {
-    is_menuentry_start(line)
-        && (line.contains("'Recovery Snapshot'")
-            || line.contains("\"Recovery Snapshot\""))
+    if !is_menuentry_start(line) {
+        return false;
+    }
+    let single = format!("'{}'", RECOVERY_TITLE);
+    let double = format!("\"{}\"", RECOVERY_TITLE);
+    line.contains(single.as_str()) || line.contains(double.as_str())
 }
 
 fn remove_menuentries(config: &str, predicate: impl Fn(&str) -> bool) -> String {
@@ -322,7 +327,7 @@ pub fn switch_recovery_tmp(snapshot: &str, target_snapshot: &str) -> Result<(), 
     atomic_write(Path::new(&grub_cfg), &remove_recovery_entries(&contents))?;
 
     // Change recovery tmp
-    let updated_line = replace_menuentry_title(&gconf, "Recovery Snapshot");
+    let updated_line = replace_menuentry_title(&gconf, RECOVERY_TITLE);
     let modified_cfg_contents = replace_recovery_snapshot_paths(&updated_line, &source_dep, &target_dep);
 
     // Write the modified contents back to the file
@@ -383,7 +388,7 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
 
             // Add recovery mode
             if Path::new(&format!("/.snapshots/rootfs/snapshot-{}", rec_tmp)).try_exists()? {
-                let updated_line = replace_menuentry_title(&gconf, "Recovery Snapshot");
+                let updated_line = replace_menuentry_title(&gconf, RECOVERY_TITLE);
 
                 // Change recovery tmp
                 let gconf = replace_snapshot_paths(&updated_line, &source_dep, &rec_tmp);
