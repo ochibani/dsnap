@@ -41,9 +41,13 @@ pub fn auto_upgrade(snapshot: &str) -> Result<(), Error> {
         prepare(snapshot)?;
 
         // Avoid invalid or corrupted package (PGP signature) error
-        Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-chr{}", snapshot))
-                              .args(["pacman", "-Sy", "--noconfirm", "archlinux-keyring"])
-                              .status().unwrap();
+        let keyring_status = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-chr{}", snapshot))
+                                                   .args(["pacman", "-Sy", "--noconfirm", "archlinux-keyring"])
+                                                   .status()?;
+        if !keyring_status.success() {
+            chr_delete(snapshot)?;
+            return Err(Error::new(ErrorKind::Other, "Failed to refresh archlinux-keyring."));
+        }
 
         if !aur_check(snapshot) {
             // Use pacman
@@ -79,7 +83,7 @@ pub fn auto_upgrade(snapshot: &str) -> Result<(), Error> {
             let args = format!("paru -Syyu --noconfirm");
             let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-chr{}", snapshot))
                                                .args(["su", "aur", "-c", &args])
-                                               .status().unwrap();
+                                               .status()?;
             if excode.success() {
                 post_transactions(snapshot)?;
                 let mut file = OpenOptions::new().write(true)
