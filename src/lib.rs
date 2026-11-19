@@ -206,14 +206,13 @@ pub fn dsnap_version() -> Result<String, Error> {
 
 // Add node to branch
 pub fn branch_create(snapshot: &str, desc: &str) -> Result<i32, Error> {
-    // Find the next available snapshot number
-    let i = find_new();
-
     // Make sure snapshot exists
     if !Path::new(&format!("/.snapshots/rootfs/snapshot-{}", snapshot)).try_exists()? {
         return Err(Error::new(ErrorKind::NotFound, format!("Cannot branch as snapshot {} doesn't exist.", snapshot)));
 
     } else {
+        // Find the next available snapshot number
+        let i = find_new()?;
         // Check mutability
         let immutability = if check_mutability(snapshot) {
             false
@@ -250,8 +249,8 @@ pub fn branch_create(snapshot: &str, desc: &str) -> Result<i32, Error> {
         if !desc.is_empty() {
             write_desc(&i.to_string(), &desc, true)?;
         }
+        Ok(i)
     }
-    Ok(i)
 }
 
 // Check if snapshot is mutable
@@ -596,14 +595,13 @@ pub fn chroot_in(path: &str) -> Result<ExitStatus, Error> {
 
 // Clone tree
 pub fn clone_as_tree(snapshot: &str, desc: &str) -> Result<i32, Error> {
-    // Find the next available snapshot number
-    let i = find_new();
-
     // Make sure snapshot does exist
     if !Path::new(&format!("/.snapshots/rootfs/snapshot-{}", snapshot)).try_exists()? {
         return Err(Error::new(ErrorKind::NotFound, format!("Cannot clone as snapshot {} doesn't exist.", snapshot)));
 
     } else {
+        // Find the next available snapshot number
+        let i = find_new()?;
         // Make snapshot mutable or immutable
         let immutability = if check_mutability(snapshot) {
            false
@@ -643,20 +641,19 @@ pub fn clone_as_tree(snapshot: &str, desc: &str) -> Result<i32, Error> {
         } else {
             write_desc(&i.to_string(), &desc, true)?;
         }
+        Ok(i)
     }
-    Ok(i)
 }
 
 // Clone branch under same parent
 pub fn clone_branch(snapshot: &str) -> Result<i32, Error> {
-    // Find the next available snapshot number
-    let i = find_new();
-
     // Make sure snapshot does exist
     if !Path::new(&format!("/.snapshots/rootfs/snapshot-{}", snapshot)).try_exists()? {
         return Err(Error::new(ErrorKind::NotFound, format!("Cannot clone as snapshot {} doesn't exist.", snapshot)));
 
     } else {
+        // Find the next available snapshot number
+        let i = find_new()?;
         // Make snapshot mutable or immutable
         let immutability = if check_mutability(snapshot) {
            false
@@ -692,8 +689,8 @@ pub fn clone_branch(snapshot: &str) -> Result<i32, Error> {
         // Write description for snapshot
         let desc = format!("clone of {}.", snapshot);
         write_desc(&i.to_string(), &desc, true)?;
+        Ok(i)
     }
-    Ok(i)
 }
 
 // Recursively clone an entire tree
@@ -730,9 +727,6 @@ pub fn clone_recursive(snapshot: &str) -> Result<(), Error> {
 
 // Clone under specified parent
 pub fn clone_under(snapshot: &str, branch: &str) -> Result<i32, Error> {
-    // Find the next available snapshot number
-    let i = find_new();
-
     // Make sure snapshot does exist
     if !Path::new(&format!("/.snapshots/rootfs/snapshot-{}", snapshot)).try_exists()? {
         return Err(Error::new(ErrorKind::NotFound, format!("Cannot clone as snapshot {} doesn't exist.", snapshot)));
@@ -743,6 +737,8 @@ pub fn clone_under(snapshot: &str, branch: &str) -> Result<i32, Error> {
 
     } else {
 
+        // Find the next available snapshot number
+        let i = find_new()?;
         // Check mutability
         let immutability = if check_mutability(branch) {
            false
@@ -779,8 +775,8 @@ pub fn clone_under(snapshot: &str, branch: &str) -> Result<i32, Error> {
         // Write description for snapshot
         let desc = format!("clone of {}.", branch);
         write_desc(&i.to_string(), &desc, true)?;
+        Ok(i)
     }
-    Ok(i)
 }
 
 // Everything after '#' is a comment
@@ -1360,31 +1356,27 @@ pub fn export(snapshot: &str, dest: &str) -> Result<(), Error> {
 }
 
 // Find new unused snapshot dir
-pub fn find_new() -> i32 {
-    let mut i = 0;
-    let boots = read_dir("/.snapshots/boot")
-        .unwrap().map(|entry| entry.unwrap().path()).collect::<Vec<_>>();
-    let etcs = read_dir("/.snapshots/etc")
-        .unwrap().map(|entry| entry.unwrap().path()).collect::<Vec<_>>();
-    let vars = read_dir("/.snapshots/var")
-        .unwrap().map(|entry| entry.unwrap().path()).collect::<Vec<_>>();
-    let mut snapshots = read_dir("/.snapshots/rootfs")
-        .unwrap().map(|entry| entry.unwrap().path()).collect::<Vec<_>>();
-    snapshots.append(&mut vars.clone());
-    snapshots.append(&mut etcs.clone());
-    snapshots.append(&mut boots.clone());
+pub fn find_new() -> Result<i32, Error> {
+    fn collect(dir: &str) -> Result<Vec<PathBuf>, Error> {
+        read_dir(dir)?
+            .map(|entry| entry.map(|e| e.path()))
+            .collect()
+    }
 
+    let mut snapshots = collect("/.snapshots/rootfs")?;
+    snapshots.extend(collect("/.snapshots/var")?);
+    snapshots.extend(collect("/.snapshots/etc")?);
+    snapshots.extend(collect("/.snapshots/boot")?);
+
+    let mut i = 0;
     loop {
         i += 1;
-        if !snapshots.contains
-            (&PathBuf::from(format!("/.snapshots/rootfs/snapshot-{}", i))) && !snapshots
-            .contains
-            (&PathBuf::from(format!("/.snapshots/var/var-{}", i))) && !snapshots
-            .contains
-            (&PathBuf::from(format!("/.snapshots/etc/etc-{}", i))) && !snapshots
-            .contains
-            (&PathBuf::from(format!("/.snapshots/boot/boot-{}", i))) {
-                break i;
+        if !snapshots.contains(&PathBuf::from(format!("/.snapshots/rootfs/snapshot-{}", i)))
+            && !snapshots.contains(&PathBuf::from(format!("/.snapshots/var/var-{}", i)))
+            && !snapshots.contains(&PathBuf::from(format!("/.snapshots/etc/etc-{}", i)))
+            && !snapshots.contains(&PathBuf::from(format!("/.snapshots/boot/boot-{}", i)))
+        {
+            return Ok(i);
         }
     }
 }
@@ -3218,7 +3210,7 @@ pub fn reset() -> Result<(), Error> {
 // Rollback last booted deployment //REVIEW => display manager on debian is issue
 pub fn rollback() -> Result<(), Error> {
     let tmp = "rollback";
-    let i = find_new();
+    let i = find_new()?;
     clone_as_tree(&tmp, "Rollback")?;
     deploy(&i.to_string(), false, false)?;
     Ok(())
@@ -3227,7 +3219,7 @@ pub fn rollback() -> Result<(), Error> {
 // Creates new tree from base file
 pub fn snapshot_base_new(desc: &str) -> Result<i32, Error> {
     // Immutability toggle not used as base should always be immutable
-    let i = find_new();
+    let i = find_new()?;
     create_snapshot("/.snapshots/boot/boot-0",
                     &format!("/.snapshots/boot/boot-{}", i),
                     true)?;
@@ -3250,9 +3242,9 @@ pub fn snapshot_base_new(desc: &str) -> Result<i32, Error> {
     write_tree(&tree)?;
     // Write description
     if desc.is_empty() {
-        write_desc(&i.to_string(), "clone of base.", true).unwrap();
+        write_desc(&i.to_string(), "clone of base.", true)?;
     } else {
-        write_desc(&i.to_string(), desc, true).unwrap();
+        write_desc(&i.to_string(), desc, true)?;
     }
     Ok(i)
 }

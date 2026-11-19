@@ -697,7 +697,13 @@ fn main() {
             // Import snapshot
             Some(("import", import_matches)) => {
                 // Get snapshot value
-                let snapshot = find_new();
+                let snapshot = match find_new() {
+                    Ok(snap) => snap,
+                    Err(e) => {
+                        eprintln!("Failed to determine next snapshot number: {}", e);
+                        return;
+                    }
+                };
 
                 // Get desc value
                 let desc = if import_matches.contains_id("DESCRIPTION") {
@@ -915,7 +921,13 @@ fn main() {
                 };
 
                 // Get new snapshot number
-                let snap_num = find_new();
+                let snap_num = match find_new() {
+                    Ok(n) => n,
+                    Err(e) => {
+                        eprintln!("Failed to determine next snapshot number: {}", e);
+                        return;
+                    }
+                };
 
                 // Run rebuild
                 let run = rebuild(&snapshot, snap_num, &desc);
