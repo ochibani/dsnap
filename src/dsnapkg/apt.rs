@@ -114,11 +114,10 @@ pub fn code_name(snapshot: &str) -> String {
     if let Ok(file) = read_to_string(&format!("/.snapshots/rootfs/snapshot-{}/etc/lsb-release", snapshot)) {
         for line in file.lines() {
             if line.starts_with("DISTRIB_CODENAME") {
-                code_name = line.split('=').nth(1).unwrap()
-                                                  .to_lowercase()
-                                                  .trim_matches('"')
-                                                  .to_string();
-                break;
+                if let Some((_, value)) = line.split_once('=') {
+                    code_name = value.to_lowercase().trim_matches('"').to_string();
+                    break;
+                }
             }
         }
     }
@@ -128,11 +127,10 @@ pub fn code_name(snapshot: &str) -> String {
         if let Ok(file) = read_to_string(&format!("/.snapshots/rootfs/snapshot-{}/etc/os-release", snapshot)) {
             for line in file.lines() {
                 if line.starts_with("VERSION_CODENAME") {
-                    code_name = line.split('=').nth(1).unwrap()
-                                                      .to_lowercase()
-                                                      .trim_matches('"')
-                                                      .to_string();
-                    break;
+                    if let Some((_, value)) = line.split_once('=') {
+                        code_name = value.to_lowercase().trim_matches('"').to_string();
+                        break;
+                    }
                 }
             }
         }
