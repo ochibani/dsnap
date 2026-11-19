@@ -240,9 +240,9 @@ pub fn branch_create(snapshot: &str, desc: &str) -> Result<i32, Error> {
         }
 
         // Import tree file
-        let tree = fstree().unwrap();
+        let tree = fstree()?;
         // Add child to node
-        add_node_to_parent(&tree, snapshot, i).unwrap();
+        add_node_to_parent(&tree, snapshot, i)?;
         // Save tree to fstree
         write_tree(&tree)?;
         // Write description for snapshot
@@ -629,9 +629,9 @@ pub fn clone_as_tree(snapshot: &str, desc: &str) -> Result<i32, Error> {
         }
 
         // Import tree file
-        let tree = fstree().unwrap();
+        let tree = fstree()?;
         // Add to root tree
-        append_base_tree(&tree, i).unwrap();
+        append_base_tree(&tree, i)?;
         // Save tree to fstree
         write_tree(&tree)?;
         // Write description for snapshot
@@ -681,9 +681,9 @@ pub fn clone_branch(snapshot: &str) -> Result<i32, Error> {
         }
 
         // Import tree file
-        let tree = fstree().unwrap();
+        let tree = fstree()?;
         // Clone within node
-        add_node_to_level(&tree, snapshot, i).unwrap();
+        add_node_to_level(&tree, snapshot, i)?;
         // Save tree to fstree
         write_tree(&tree)?;
         // Write description for snapshot
@@ -701,7 +701,7 @@ pub fn clone_recursive(snapshot: &str) -> Result<(), Error> {
 
     } else {
         // Import tree file
-        let tree = fstree().unwrap();
+        let tree = fstree()?;
         // Clone its branch and replace the original child with the clone
         let mut children = return_children(&tree, snapshot)?;
         let ch = children.clone();
@@ -712,13 +712,15 @@ pub fn clone_recursive(snapshot: &str) -> Result<(), Error> {
 
         // Clone each child's branch under the corresponding parent in the new children list
         for child in ch {
-            let parent = get_parent(&tree, &child).unwrap().to_string();
-            let index = children.iter().position(|x| x == &parent).unwrap();
+            let parent = get_parent(&tree, &child)?.to_string();
+            let index = children.iter().position(|x| x == &parent)
+                .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("Parent {} not found in tree.", parent)))?;
             let i = clone_under(&new_children[index], &child)?;
             // Record the new id at the CHILD's position so the next child
             // of the same parent attaches to the clone, not to the
             // original node still in the list
-            let child_index = children.iter().position(|x| x == &child).unwrap();
+            let child_index = children.iter().position(|x| x == &child)
+                .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("Child {} not found in tree.", child)))?;
             new_children[child_index] = i.to_string();
         }
     }
@@ -767,9 +769,9 @@ pub fn clone_under(snapshot: &str, branch: &str) -> Result<i32, Error> {
         }
 
         // Import tree file
-        let tree = fstree().unwrap();
+        let tree = fstree()?;
         // Add child to node
-        add_node_to_parent(&tree, snapshot, i).unwrap();
+        add_node_to_parent(&tree, snapshot, i)?;
         // Save tree to fstree
         write_tree(&tree)?;
         // Write description for snapshot
@@ -829,8 +831,8 @@ pub fn delete_node(snapshots: &Vec<String>, quiet: bool, nuke: bool) -> Result<(
 
         if nuke | run {
             // Delete snapshot
-            let tree = fstree().unwrap();
-            let children = return_children(&tree, &snapshot);
+            let tree = fstree()?;
+            let children = return_children(&tree, &snapshot)?;
             let desc_path = format!("/.snapshots/dsnap/snapshots/{}-desc", snapshot);
             if Path::new(&desc_path).is_file() {
                 std::fs::remove_file(desc_path)?;
@@ -850,7 +852,7 @@ pub fn delete_node(snapshots: &Vec<String>, quiet: bool, nuke: bool) -> Result<(
                 delete_subvolume(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot))?;
             }
 
-            for child in children? {
+            for child in children {
                 // This deletes the node itself along with its children
                 let desc_path = format!("/.snapshots/dsnap/snapshots/{}-desc", child);
                 if Path::new(&desc_path).is_file() {
@@ -871,7 +873,7 @@ pub fn delete_node(snapshots: &Vec<String>, quiet: bool, nuke: bool) -> Result<(
             }
 
             // Remove node from tree or root
-            remove_node(&tree, snapshot).unwrap();
+            remove_node(&tree, snapshot)?;
             write_tree(&tree)?;
         }
     }
@@ -1811,9 +1813,9 @@ pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir) -> Resul
         }
 
         // Import tree file
-        let tree = fstree().unwrap();
+        let tree = fstree()?;
         // Add to root tree
-        append_base_tree(&tree, snapshot).unwrap();
+        append_base_tree(&tree, snapshot)?;
         // Save tree to fstree
         write_tree(&tree)?;
         // Write description for snapshot
@@ -2977,9 +2979,9 @@ pub fn rebuild(snapshot: &str, snap_num: i32, desc: &str) -> Result<i32, Error> 
         }
 
         // Import tree file
-        let tree = fstree().unwrap();
+        let tree = fstree()?;
         // Add to root tree
-        append_base_tree(&tree, snap_num).unwrap();
+        append_base_tree(&tree, snap_num)?;
         // Save tree to fstree
         write_tree(&tree)?;
         // Write description for snapshot
@@ -3162,8 +3164,8 @@ pub fn reset() -> Result<(), Error> {
     let reset_msg = "The system will restart automatically to complete the reset. Do you want to continue?";
     if yes_no(msg) && yes_no(reset_msg) {
         // Collect snapshots
-        let tree = fstree().unwrap();
-        let snapshots = return_children(&tree, "root");
+        let tree = fstree()?;
+        let snapshots = return_children(&tree, "root")?;
 
         // Prepare rc.local
         prepare("0")?;
@@ -3185,7 +3187,7 @@ pub fn reset() -> Result<(), Error> {
             prepare("0")?;
             copy("/.snapshots/rootfs/snapshot-chr0/etc/rc.local.bak", "/.snapshots/rootfs/snapshot-chr0/etc/rc.local")?;
             post_transactions("0")?;
-            for snapshot in snapshots? {
+            for snapshot in snapshots {
                 // Delete snapshot if exist
                 if Path::new(&format!("/.snapshots/rootfs/snapshot-{}", snapshot)).try_exists()?
                 && snapshot.to_string() != current_snapshot && snapshot.to_string() != "0" {
@@ -3230,10 +3232,10 @@ pub fn snapshot_base_new(desc: &str) -> Result<i32, Error> {
                     true)?;
 
     // Import tree file
-    let tree = fstree().unwrap();
+    let tree = fstree()?;
 
     // Add to root tree
-    append_base_tree(&tree, i).unwrap();
+    append_base_tree(&tree, i)?;
     // Save tree to fstree
     write_tree(&tree)?;
     // Write description
@@ -3667,12 +3669,12 @@ pub fn tree_install(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, 
 
     } else {
         // Import tree value
-        let tree = fstree().unwrap();
+        let tree = fstree()?;
         // Install packages
         if !pkgs.is_empty() {
             for pkg in pkgs {
                 install(treename, &vec![pkg.to_string()], noconfirm)?;
-                let order = recurse_tree(&tree, treename);
+                let order = recurse_tree(&tree, treename)?;
                 for branch in order {
                     if branch != treename {
                         println!("{}, {}", treename,branch);
@@ -3691,7 +3693,7 @@ pub fn tree_install(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, 
                     return Err(Error::new(ErrorKind::Other,
                                           format!("Failed to install and changes discarded.")));
                 }
-                let order = recurse_tree(&tree, treename);
+                let order = recurse_tree(&tree, treename)?;
                 for branch in order {
                     if branch != treename {
                         println!("{}, {}", treename,branch);
@@ -3716,7 +3718,7 @@ pub fn tree_install(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, 
                     return Err(Error::new(ErrorKind::Other,
                                           format!("Failed to install and changes discarded.")));
                 }
-                let order = recurse_tree(&tree, treename);
+                let order = recurse_tree(&tree, treename)?;
                 for branch in order {
                     if branch != treename {
                         println!("{}, {}", treename,branch);
@@ -3743,12 +3745,12 @@ pub fn tree_remove(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, u
 
     } else {
         // Import tree value
-        let tree = fstree().unwrap();
+        let tree = fstree()?;
         // Remove packages
         if !pkgs.is_empty() {
             for pkg in pkgs {
                 uninstall(treename, &vec![pkg.to_string()], noconfirm)?;
-                let order = recurse_tree(&tree, treename);
+                let order = recurse_tree(&tree, treename)?;
                 for branch in order {
                     if branch != treename {
                         println!("{}, {}", treename,branch);
@@ -3767,7 +3769,7 @@ pub fn tree_remove(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, u
                     return Err(Error::new(ErrorKind::Other,
                                           format!("Failed to remove and changes discarded.")));
                 }
-                let order = recurse_tree(&tree, treename);
+                let order = recurse_tree(&tree, treename)?;
                 for branch in order {
                     if branch != treename {
                         println!("{}, {}", treename,branch);
@@ -3792,7 +3794,7 @@ pub fn tree_remove(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, u
                     return Err(Error::new(ErrorKind::Other,
                                           format!("Failed to remove and changes discarded.")));
                 }
-                let order = recurse_tree(&tree, treename);
+                let order = recurse_tree(&tree, treename)?;
                 for branch in order {
                     if branch != treename {
                         println!("{}, {}", treename,branch);
@@ -3829,9 +3831,9 @@ pub fn tree_run(treename: &str, cmd: &str) -> Result<(), Error> {
         post_transactions(treename)?;
 
         // Import tree file
-        let tree = fstree().unwrap();
+        let tree = fstree()?;
 
-        let order = recurse_tree(&tree, treename);
+        let order = recurse_tree(&tree, treename)?;
         for branch in order {
             if branch != treename {
                 println!("{}, {}", treename,branch);
@@ -3877,9 +3879,9 @@ pub fn tree_sync(treename: &str, live: bool) -> Result<(), Error> {
         }
 
         // Import tree file
-        let tree = fstree().unwrap();
+        let tree = fstree()?;
 
-        let order = recurse_tree(&tree, treename);
+        let order = recurse_tree(&tree, treename)?;
         for branch in order {
             if branch != treename {
                 println!("{}, {}", treename,branch);
@@ -3927,9 +3929,9 @@ pub fn tree_upgrade(treename: &str) -> Result<(), Error> {
         };
 
         // Import tree file
-        let tree = fstree().unwrap();
+        let tree = fstree()?;
 
-        let order = recurse_tree(&tree, treename);
+        let order = recurse_tree(&tree, treename)?;
 
         // Auto upgrade braches in sync_tree
         for branch in order {
@@ -4293,10 +4295,10 @@ pub fn upgrade(snapshot:  &str, baseup: bool, noconfirm: bool) -> Result<(), Err
 }
 
 // Return snapshot that has a package
-pub fn which_snapshot_has(pkgs: Vec<String>) {
+pub fn which_snapshot_has(pkgs: Vec<String>) -> Result<(), Error> {
     // Collect snapshots
-    let tree = fstree().unwrap();
-    let snapshots = return_children(&tree, "root").unwrap();
+    let tree = fstree()?;
+    let snapshots = return_children(&tree, "root")?;
 
     // Search snapshots for package
     for pkg in pkgs {
@@ -4310,6 +4312,7 @@ pub fn which_snapshot_has(pkgs: Vec<String>) {
             println!("Package(s) {} installed in {snapshot:?}.", pkg);
         }
     }
+    Ok(())
 }
 
 // Write new description (default) or append to an existing one (i.e. toggle immutability)

@@ -147,13 +147,13 @@ fn import_tree_file(treename: &str) -> Result<PyObject, PyErr> {
 }
 
 // Return order to recurse tree
-pub fn recurse_tree(tree: &PyObject, cid: &str) -> Vec<String> {
+pub fn recurse_tree(tree: &PyObject, cid: &str) -> Result<Vec<String>, PyErr> {
     // return_children already yields every descendant in pre-order
     // (parents before children); looking up each node's parent again and
     // pushing it made every intermediate node appear once per child,
     // so each snapshot between the tree root and a leaf was processed
     // repeatedly (once for itself, once as its child's parent)
-    return_children(&tree, cid).unwrap()
+    return_children(&tree, cid)
 }
 
 // Remove node from tree
@@ -204,7 +204,7 @@ pub fn return_children(tree: &PyObject, id: &str) -> Result<Vec<String>, PyErr> 
         let preorderiter = anytree.call_method("PreOrderIter", (par,), None)?.iter();
 
         for child in preorderiter? {
-            children.push(child?.getattr("name").unwrap().to_string());
+            children.push(child?.getattr("name")?.to_string());
         }
         if let Some(index) = children.iter().position(|x| x == id) {
             children.remove(index);

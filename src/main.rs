@@ -1346,7 +1346,10 @@ fn main() {
                 let pkgs: Vec<String> = whichsnap_matches.get_many::<String>("PACKAGE").unwrap().map(|s| format!("{}", s)).collect();
 
                 // Run which_snapshot_has
-                which_snapshot_has(pkgs);
+                match which_snapshot_has(pkgs) {
+                    Ok(_) => (),
+                    Err(e) => eprintln!("{}", e),
+                }
             }
             // Which deployment is active
             Some(("whichtmp", _matches)) => {
