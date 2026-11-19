@@ -267,8 +267,8 @@ pub fn write_tree(tree: &PyObject) -> Result<(), PyErr> {
                                            .open(fstreepath)?;
 
         // Call export function with fstree argument
-        let to_write = exporter_instance.call_method("export", (tree,), None);
-        let write = fsfile.write_all(to_write.unwrap().to_string().as_bytes())?;
+        let to_write = exporter_instance.call_method("export", (tree,), None)?;
+        let write = fsfile.write_all(to_write.to_string().as_bytes())?;
         Ok(write)
     })
 }

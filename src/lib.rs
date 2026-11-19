@@ -783,11 +783,9 @@ pub fn clone_under(snapshot: &str, branch: &str) -> Result<i32, Error> {
 
 // Everything after '#' is a comment
 fn comment_after_hash(line: &mut String) -> &str {
-    if line.contains("#") {
-        let line = line.split("#").next().unwrap();
-        return line;
-    } else {
-        return line;
+    match line.find('#') {
+        Some(index) => &line[..index],
+        None => line,
     }
 }
 
@@ -4322,7 +4320,10 @@ pub fn yes_no(msg: &str) -> bool {
     loop {
         println!("{} (y/n)", msg);
         let mut reply = String::new();
-        stdin().read_line(&mut reply).unwrap();
+        if let Err(e) = stdin().read_line(&mut reply) {
+            eprintln!("Failed to read input: {}", e);
+            return false;
+        }
         match reply.trim().to_lowercase().as_str() {
             "yes" | "y" => return true,
             "no" | "n" => return false,
