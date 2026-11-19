@@ -1,4 +1,4 @@
-use crate::{deploy_recovery, detect_distro, get_aux_tmp, get_part, get_recovery_aux_tmp,
+use crate::{chr_delete, deploy_recovery, detect_distro, get_aux_tmp, get_part, get_recovery_aux_tmp,
             get_recovery_tmp, get_tmp, post_transactions, prepare};
 
 use chrono::{Local, NaiveDateTime};
@@ -429,50 +429,57 @@ pub fn update_boot(snapshot: &str, secondary: bool) -> Result<(), Error> {
         // Prepare for update
         prepare(snapshot)?;
 
-        // Remove grub configurations older than 30 days
-        if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}/BAK/", snapshot,grub)).try_exists()? && snapshot != "0" {
-            delete_old_grub_files(&format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}", snapshot,grub).as_str())?;
-        }
-
-        // Get current time
-        let time = Local::now().naive_local();
-        let formatted = time.format("%Y%m%d-%H%M%S").to_string();
-
-        // Copy backup
-        if snapshot != "0" {
-            if !Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}/BAK/", snapshot,grub)).try_exists()? {
-                DirBuilder::new().recursive(true)
-                                 .create(format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}/BAK", snapshot,grub))?;
-
+        let result = (|| -> Result<(), Error> {
+            // Remove grub configurations older than 30 days
+            if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}/BAK/", snapshot,grub)).try_exists()? && snapshot != "0" {
+                delete_old_grub_files(&format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}", snapshot,grub).as_str())?;
             }
-            copy(format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}/grub.cfg", snapshot,grub),
-                 format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}/BAK/grub.cfg.{}", snapshot,grub,formatted))?;
+
+            // Get current time
+            let time = Local::now().naive_local();
+            let formatted = time.format("%Y%m%d-%H%M%S").to_string();
+
+            // Copy backup
+            if snapshot != "0" {
+                if !Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}/BAK/", snapshot,grub)).try_exists()? {
+                    DirBuilder::new().recursive(true)
+                                     .create(format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}/BAK", snapshot,grub))?;
+
+                }
+                copy(format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}/grub.cfg", snapshot,grub),
+                     format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}/BAK/grub.cfg.{}", snapshot,grub,formatted))?;
+            }
+
+            // Regenerate the GRUB configuration in the chroot.
+            let root = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
+            let boot_cfg = format!("/boot/{}/grub.cfg", grub);
+            let mkconfig = if Path::new(&format!("{}/usr/sbin/grub2-mkconfig", root)).try_exists()? {
+                "/usr/sbin/grub2-mkconfig"
+            } else {
+                "/usr/sbin/grub-mkconfig"
+            };
+            chroot_command(&root, mkconfig, &[&part, "-o", &boot_cfg])?;
+
+            // Apply the same two substitutions the previous sed commands made.
+            let cfg_path = format!("{}{}", root, boot_cfg);
+            let mut cfg = read_to_string(&cfg_path)?;
+            cfg = cfg.replace(&format!("snapshot-chr{}", snapshot),
+                              &format!("snapshot-{}", tmp));
+            let distro_name = detect_distro::distro_name(snapshot);
+            if !distro_name.is_empty() {
+                let labelled = format!("{} snapshot {}", distro_name, snapshot);
+                cfg = cfg.replacen(&distro_name, &labelled, 1);
+            }
+            atomic_write(Path::new(&cfg_path), &cfg)?;
+
+            // Finish the update
+            post_transactions(snapshot)?;
+            Ok(())
+        })();
+        if let Err(e) = result {
+            let _ = chr_delete(snapshot);
+            return Err(e);
         }
-
-        // Regenerate the GRUB configuration in the chroot.
-        let root = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
-        let boot_cfg = format!("/boot/{}/grub.cfg", grub);
-        let mkconfig = if Path::new(&format!("{}/usr/sbin/grub2-mkconfig", root)).try_exists()? {
-            "/usr/sbin/grub2-mkconfig"
-        } else {
-            "/usr/sbin/grub-mkconfig"
-        };
-        chroot_command(&root, mkconfig, &[&part, "-o", &boot_cfg])?;
-
-        // Apply the same two substitutions the previous sed commands made.
-        let cfg_path = format!("{}{}", root, boot_cfg);
-        let mut cfg = read_to_string(&cfg_path)?;
-        cfg = cfg.replace(&format!("snapshot-chr{}", snapshot),
-                          &format!("snapshot-{}", tmp));
-        let distro_name = detect_distro::distro_name(snapshot);
-        if !distro_name.is_empty() {
-            let labelled = format!("{} snapshot {}", distro_name, snapshot);
-            cfg = cfg.replacen(&distro_name, &labelled, 1);
-        }
-        atomic_write(Path::new(&cfg_path), &cfg)?;
-
-        // Finish the update
-        post_transactions(snapshot)?;
     }
     Ok(())
 }
