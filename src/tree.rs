@@ -216,7 +216,9 @@ pub fn return_children(tree: &PyObject, id: &str) -> Result<Vec<String>, PyErr> 
 // Print out tree with descriptions
 pub fn tree_print(tree: &PyObject) -> Result<(), Error> {
     Python::with_gil(|py| {
-        let snapshot = get_current_snapshot()?;
+        // A missing current-snapshot marker only removes the '*' marker
+        // from the display; it must not prevent printing the tree.
+        let snapshot = get_current_snapshot().unwrap_or_default();
 
         // From anytree import AsciiStyle, RenderTree
         let anytree = py.import_bound("anytree")?;
