@@ -294,7 +294,7 @@ pub fn install_package_helper(snapshot:&str, pkgs: &Vec<String>, noconfirm: bool
     let mut write_options = WriteOptions::default();
     write_options.blank_lines_between_sections = 1;
     // Load profile
-    profconf.load(&cfile).unwrap();
+    profconf.load(&cfile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
 
     for pkg in pkgs {
         let mut pkgs_list: Vec<String> = Vec::new();
@@ -768,7 +768,7 @@ pub fn uninstall_package_helper(snapshot: &str, pkgs: &Vec<String>, noconfirm: b
     let mut write_options = WriteOptions::default();
     write_options.blank_lines_between_sections = 1;
     // Load profile
-    profconf.load(&cfile).unwrap();
+    profconf.load(&cfile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
 
     for pkg in pkgs {
         let mut pkgs_list: Vec<String> = Vec::new();

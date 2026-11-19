@@ -2441,17 +2441,10 @@ fn is_system_locked() -> bool {
 
 // Check if package in "system-packages" list
 fn is_system_pkg(profconf: &Ini, pkg: String) -> bool {
-    let mut pkg_list: Vec<String> = Vec::new();
-    if profconf.sections().contains(&"system-packages".to_string()) {
-        for system_pkg in profconf.get_map().unwrap().get("system-packages").unwrap().keys() {
-            pkg_list.push(system_pkg.to_string());
-        }
-    }
-    if pkg_list.contains(&pkg) {
-        return true;
-    } else {
-        return false;
-    }
+    profconf.get_map()
+            .and_then(|map| map.get("system-packages").cloned())
+            .map(|section| section.contains_key(&pkg))
+            .unwrap_or(false)
 }
 
 // Package list
@@ -3024,7 +3017,7 @@ pub fn rebuild_prep(snapshot: &str) -> Result<(), Error> {
     profconf.set_comment_symbols(&['#']);
     profconf.set_multiline(true);
     // Load profile
-    profconf.load(&cfile).unwrap();
+    profconf.load(&cfile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
 
     // Create chroot directory
     let snapshot_chr = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
