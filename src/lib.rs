@@ -2044,6 +2044,28 @@ pub fn install_live(pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
     run
 }
 
+// Upgrade the currently deployed snapshot in place, without reboot.
+pub fn upgrade_live(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
+    let current = get_current_snapshot()?;
+    if snapshot != current {
+        return Err(Error::new(ErrorKind::Unsupported,
+                              "Can't use the live option with any other snapshot than the current one.".to_string()));
+    }
+
+    println!("Upgrading the live snapshot in place; changes cannot be discarded. A kernel update still requires a reboot.");
+    let tmp = get_tmp();
+    dsnap_mounts(&tmp, "").map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+    let run = upgrade_helper_live(&tmp, noconfirm);
+    // Umount even when the upgrade failed, otherwise the mounts leak
+    if let Err(e) = dsnap_umounts(&tmp, "") {
+        if run.is_ok() {
+            return Err(Error::new(ErrorKind::Other, e.to_string()));
+        }
+        eprintln!("Failed to unmount live snapshot {}: {}", tmp, e);
+    }
+    run
+}
+
 // Install a profile from a text file
 fn install_profile(snapshot: &str, profile: &str, force: bool, secondary: bool,
                    user_profile: &str, noconfirm: bool) -> Result<bool, Error> {

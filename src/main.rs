@@ -1361,11 +1361,16 @@ fn main() {
                     }
                 };
 
-                // Optional value
+                // Optional values
                 let noconfirm = upgrade_matches.get_flag("noconfirm");
+                let live = upgrade_matches.get_flag("live");
 
                 // Run upgrade
-                let run = upgrade(&snapshot, false, noconfirm);
+                let run = if live {
+                    upgrade_live(&snapshot, noconfirm)
+                } else {
+                    upgrade(&snapshot, false, noconfirm)
+                };
                 match run {
                     Ok(_) => {},
                     Err(e) => eprintln!("{}", e),
