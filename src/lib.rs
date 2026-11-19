@@ -2843,7 +2843,7 @@ pub fn rebuild(snapshot: &str, snap_num: i32, desc: &str) -> Result<i32, Error> 
         return Err(Error::new(ErrorKind::NotFound, format!("Cannot rebuild as snapshot {} doesn't exist.", snapshot)));
 
     // Make sure snapshot is not in use by another dsnap process
-    } else if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot)).try_exists().unwrap() {
+    } else if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot)).try_exists()? {
         return Err(
             Error::new(
                 ErrorKind::Unsupported,
@@ -2851,7 +2851,7 @@ pub fn rebuild(snapshot: &str, snap_num: i32, desc: &str) -> Result<i32, Error> 
                         snapshot,snapshot)));
 
     // Make sure snap_num is not in use by another dsnap process
-    } else if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}", snap_num)).try_exists().unwrap() {
+    } else if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}", snap_num)).try_exists()? {
         return Err(
             Error::new(
                 ErrorKind::Unsupported,
