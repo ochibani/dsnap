@@ -559,7 +559,7 @@ pub fn uninstall_package_helper_live(tmp: &str, pkgs: &Vec<String>, noconfirm: b
 // Upgrade snapshot atomic-operation
 pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
     // Prepare snapshot
-    prepare(snapshot).unwrap();
+    prepare(snapshot)?;
 
     let upgrade_args = if noconfirm {
         "dnf upgrade -y --refresh"
@@ -570,7 +570,7 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
     // Run dnf upgrade
     let dnf_upgrade = Command::new("sh").arg("-c")
                                         .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,upgrade_args))
-                                        .status().unwrap();
+                                        .status()?;
     if !dnf_upgrade.success() {
         return Err(Error::new(ErrorKind::Other,
                               format!("Failed to upgrade snapshot {}.", snapshot)));
@@ -589,7 +589,7 @@ pub fn upgrade_helper_live(tmp: &str, noconfirm: bool) -> Result<(), Error> {
     // Run dnf upgrade
     let excode = Command::new("sh").arg("-c")
                                    .arg(format!("chroot /.snapshots/rootfs/snapshot-{} {}", tmp,upgrade_args))
-                                   .status().unwrap();
+                                   .status()?;
     if !excode.success() {
         return Err(Error::new(ErrorKind::Other,
                               "Failed to upgrade current/live snapshot."));

@@ -868,7 +868,7 @@ pub fn uninstall_package_helper_live(tmp: &str, pkgs: &Vec<String>, noconfirm: b
 // Upgrade snapshot atomic-operation
 pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
     // Prepare snapshot
-    prepare(snapshot).unwrap();
+    prepare(snapshot)?;
     // Avoid invalid or corrupted package (PGP signature) error
     let pacman_args: &[&str] = if noconfirm {
         &["pacman", "--noconfirm", "-Syy", "archlinux-keyring"]
@@ -878,7 +878,7 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
 
     Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-chr{}", snapshot))
                           .args(pacman_args)
-                          .status().unwrap();
+                          .status()?;
     if !aur_check(snapshot) {
         let pacman_args: &[&str] = if noconfirm {
             &["pacman", "--noconfirm", "-Syyu"]
@@ -888,7 +888,7 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
 
         let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-chr{}", snapshot))
                                             .args(pacman_args)
-                                            .status().unwrap();
+                                            .status()?;
         if !excode.success() {
             return Err(Error::new(ErrorKind::Other,
                                   format!("Failed to upgrade snapshot {}.", snapshot)));
@@ -902,7 +902,7 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
 
         let excode = Command::new("sh").arg("-c")
                                         .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} su aur -c '{}'", snapshot,paru_args))
-                                        .status().unwrap();
+                                        .status()?;
         if !excode.success() {
             return Err(Error::new(ErrorKind::Other,
                                   format!("Failed to upgrade snapshot {}.", snapshot)));
@@ -922,7 +922,7 @@ pub fn upgrade_helper_live(tmp: &str, noconfirm: bool) -> Result<(), Error> {
 
     Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-{}", tmp))
                           .args(pacman_args)
-                          .status().unwrap();
+                          .status()?;
     if !aur_check(tmp) {
         let pacman_args: &[&str] = if noconfirm {
             &["pacman", "--noconfirm", "-Syyu"]
@@ -932,7 +932,7 @@ pub fn upgrade_helper_live(tmp: &str, noconfirm: bool) -> Result<(), Error> {
 
         let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-{}", tmp))
                                            .args(pacman_args)
-                                           .status().unwrap();
+                                           .status()?;
         if !excode.success() {
             return Err(Error::new(ErrorKind::Other,
                                   "Failed to upgrade current/live snapshot."));
@@ -948,7 +948,7 @@ pub fn upgrade_helper_live(tmp: &str, noconfirm: bool) -> Result<(), Error> {
             .arg("-c")
             .arg(format!("chroot /.snapshots/rootfs/snapshot-{} su aur -c '{}'",
                          tmp,paru_args))
-            .status().unwrap();
+            .status()?;
         if !excode.success() {
             return Err(Error::new(ErrorKind::Other,
                                   "Failed to upgrade current/live snapshot."));
