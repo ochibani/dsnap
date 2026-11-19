@@ -7,7 +7,7 @@ use configparser::ini::{Ini, WriteOptions};
 use ctrlc;
 use curl::easy::{Easy, HttpVersion, List};
 use detect_distro as detect;
-use nix::mount::{mount, MntFlags, MsFlags, umount2};
+use nix::mount::{MntFlags, mount, MsFlags, umount2};
 use partition_identity::{PartitionID, PartitionSource};
 use proc_mounts::MountIter;
 use rustix::path::Arg;
@@ -3501,8 +3501,8 @@ impl SnapshotConfig {
             match key {
                 "aur" => {
                     config.aur = match value.to_ascii_lowercase().as_str() {
-                        "true" => true,
                         "false" => false,
+                        "true" => true,
                         other => return Err(Error::new(ErrorKind::InvalidData,
                             format!("Invalid aur value '{}' in {}", other, path))),
                     };
@@ -4517,8 +4517,8 @@ pub fn yes_no(msg: &str) -> bool {
             return false;
         }
         match reply.trim().to_lowercase().as_str() {
-            "yes" | "y" => return true,
-            "no" | "n" => return false,
+            "n" | "no" => return false,
+            "y" | "yes" => return true,
             _ => eprintln!("Invalid choice!"),
         }
     }

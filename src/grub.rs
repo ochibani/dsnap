@@ -1,8 +1,8 @@
 use crate::{chroot_exec, deploy_recovery, detect_distro, get_aux_tmp, get_part, get_recovery_aux_tmp,
             get_recovery_tmp, get_tmp, post_transactions, prepare};
 
-use chrono::{NaiveDateTime, Local};
-use nix::mount::{mount, MntFlags, MsFlags, umount2};
+use chrono::{Local, NaiveDateTime};
+use nix::mount::{MntFlags, mount, MsFlags, umount2};
 use std::fs::{copy, DirBuilder, File, OpenOptions};
 use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Write};
 use std::path::Path;

@@ -1,6 +1,7 @@
-use crate::{has_systemd, cp_reflink, cp_reflink_no_clobber,check_profile, check_mutability, chr_delete, chroot_exec, get_current_snapshot, get_tmp,
-            grub, immutability_disable, immutability_enable, is_system_pkg, is_system_locked,
-            post_transactions, prepare, remove_dir_content, snapshot_config, profile_write, sync_time};
+use crate::{check_mutability, check_profile, chr_delete, chroot_exec, cp_reflink, cp_reflink_no_clobber,
+            get_current_snapshot, get_tmp, grub, has_systemd, immutability_disable, immutability_enable,
+            is_system_locked, is_system_pkg, post_transactions, prepare, profile_write,
+            remove_dir_content, snapshot_config, sync_time};
 
 use configparser::ini::{Ini, WriteOptions};
 use rustix::path::Arg;
