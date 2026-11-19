@@ -1,14 +1,23 @@
-use crate::{chroot_exec, deploy_recovery, detect_distro, get_aux_tmp, get_part, get_recovery_aux_tmp,
+use crate::{deploy_recovery, detect_distro, get_aux_tmp, get_part, get_recovery_aux_tmp,
             get_recovery_tmp, get_tmp, post_transactions, prepare};
 
 use chrono::{Local, NaiveDateTime};
 use nix::mount::{MntFlags, mount, MsFlags, umount2};
-use std::fs::{copy, DirBuilder, File};
+use std::fs::{copy, read_to_string, DirBuilder, File};
 use std::io::{Error, ErrorKind, Read, Write};
 use std::path::Path;
 use std::process::Command;
 use tempfile::{NamedTempFile, TempDir};
 use walkdir::WalkDir;
+
+fn chroot_command(root: &str, program: &str, args: &[&str]) -> Result<(), Error> {
+    let status = Command::new("chroot").arg(root).arg(program).args(args).status()?;
+    if !status.success() {
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Failed to run {} in {}.", program, root)));
+    }
+    Ok(())
+}
 
 // Replace a file atomically so interrupted writes cannot leave it truncated.
 fn atomic_write(path: &Path, content: &str) -> Result<(), Error> {
@@ -440,20 +449,27 @@ pub fn update_boot(snapshot: &str, secondary: bool) -> Result<(), Error> {
                  format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}/BAK/grub.cfg.{}", snapshot,grub,formatted))?;
         }
 
-        // Run update commands in chroot
-        let distro_name = detect_distro::distro_name(snapshot);
-        let mkconfig = if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/usr/sbin/grub2-mkconfig", snapshot)).try_exists()? {
-            format!("/usr/sbin/grub2-mkconfig {} -o /boot/{}/grub.cfg", part,grub)
+        // Regenerate the GRUB configuration in the chroot.
+        let root = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
+        let boot_cfg = format!("/boot/{}/grub.cfg", grub);
+        let mkconfig = if Path::new(&format!("{}/usr/sbin/grub2-mkconfig", root)).try_exists()? {
+            "/usr/sbin/grub2-mkconfig"
         } else {
-            format!("/usr/sbin/grub-mkconfig {} -o /boot/{}/grub.cfg", part,grub)
+            "/usr/sbin/grub-mkconfig"
         };
-        let sed_snap = format!("sed -i 's|snapshot-chr{}|snapshot-{}|g' /boot/{}/grub.cfg", snapshot,tmp,grub);
-        let sed_distro = format!("sed -i '0,\\|{}| s||{} snapshot {}|' /boot/{}/grub.cfg",
-                                 distro_name,distro_name,snapshot,grub);
-        let cmds = [mkconfig, sed_snap, sed_distro];
-        for cmd in cmds {
-            chroot_exec(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot), &cmd)?;
+        chroot_command(&root, mkconfig, &[&part, "-o", &boot_cfg])?;
+
+        // Apply the same two substitutions the previous sed commands made.
+        let cfg_path = format!("{}{}", root, boot_cfg);
+        let mut cfg = read_to_string(&cfg_path)?;
+        cfg = cfg.replace(&format!("snapshot-chr{}", snapshot),
+                          &format!("snapshot-{}", tmp));
+        let distro_name = detect_distro::distro_name(snapshot);
+        if !distro_name.is_empty() {
+            let labelled = format!("{} snapshot {}", distro_name, snapshot);
+            cfg = cfg.replacen(&distro_name, &labelled, 1);
         }
+        atomic_write(Path::new(&cfg_path), &cfg)?;
 
         // Finish the update
         post_transactions(snapshot)?;
