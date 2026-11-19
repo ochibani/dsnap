@@ -166,8 +166,8 @@ pub fn install_package_helper(snapshot:&str, pkgs: &Vec<String>, noconfirm: bool
 
     for pkg in pkgs {
         let mut pkgs_list: Vec<String> = Vec::new();
-        if profconf.sections().contains(&"profile-packages".to_string()) {
-            for pkg in profconf.get_map().unwrap().get("profile-packages").unwrap().keys() {
+        if let Some(section) = profconf.get_map().and_then(|map| map.get("profile-packages").cloned()) {
+            for pkg in section.keys() {
                 pkgs_list.push(pkg.to_string());
             }
         }
@@ -278,8 +278,8 @@ pub fn is_service_enabled(snapshot: &str, service: &str) -> bool {
 // Prevent system packages from being automatically removed
 pub fn lockpkg(snapshot:&str, profconf: &Ini) -> Result<(), Error> {
     let mut system_pkgs: Vec<String> = Vec::new();
-    if profconf.sections().contains(&"system-packages".to_string()) {
-        for pkg in profconf.get_map().unwrap().get("system-packages").unwrap().keys() {
+    if let Some(section) = profconf.get_map().and_then(|map| map.get("system-packages").cloned()) {
+        for pkg in section.keys() {
             system_pkgs.push(pkg.to_string());
         }
     }
@@ -469,9 +469,9 @@ pub fn system_config(snapshot: &str, profconf: &Ini) -> Result<(), Error> {
                format!("/.snapshots/rootfs/snapshot-chr{}/etc/grub.d", snapshot))?;
 
     // Install system packages
-    if profconf.sections().contains(&"system-packages".to_string()) {
+    if let Some(section) = profconf.get_map().and_then(|map| map.get("system-packages").cloned()) {
         let mut pkgs_list: Vec<String> = Vec::new();
-        for pkg in profconf.get_map().unwrap().get("system-packages").unwrap().keys() {
+        for pkg in section.keys() {
             pkgs_list.push(pkg.to_string());
         }
         if !pkgs_list.is_empty() {
@@ -479,9 +479,9 @@ pub fn system_config(snapshot: &str, profconf: &Ini) -> Result<(), Error> {
         }
     }
 
-    if profconf.sections().contains(&"profile-packages".to_string()) {
+    if let Some(section) = profconf.get_map().and_then(|map| map.get("profile-packages").cloned()) {
         let mut pkgs_list: Vec<String> = Vec::new();
-        for pkg in profconf.get_map().unwrap().get("profile-packages").unwrap().keys() {
+        for pkg in section.keys() {
             pkgs_list.push(pkg.to_string());
         }
         if !pkgs_list.is_empty() {
@@ -490,9 +490,9 @@ pub fn system_config(snapshot: &str, profconf: &Ini) -> Result<(), Error> {
     }
 
     // Read disable services section in configuration file
-    if profconf.sections().contains(&"disable-services".to_string()) {
+    if let Some(section) = profconf.get_map().and_then(|map| map.get("disable-services").cloned()) {
         let mut services: Vec<String> = Vec::new();
-        for service in profconf.get_map().unwrap().get("disable-services").unwrap().keys() {
+        for service in section.keys() {
             services.push(service.to_string());
         }
         // Disable service(s)
@@ -502,9 +502,9 @@ pub fn system_config(snapshot: &str, profconf: &Ini) -> Result<(), Error> {
     }
 
     // Read enable services section in configuration file
-    if profconf.sections().contains(&"enable-services".to_string()) {
+    if let Some(section) = profconf.get_map().and_then(|map| map.get("enable-services").cloned()) {
         let mut services: Vec<String> = Vec::new();
-        for service in profconf.get_map().unwrap().get("enable-services").unwrap().keys() {
+        for service in section.keys() {
             services.push(service.to_string());
         }
         // Enable service(s)
@@ -514,16 +514,16 @@ pub fn system_config(snapshot: &str, profconf: &Ini) -> Result<(), Error> {
     }
 
     // Read commands section in configuration file
-    if profconf.sections().contains(&"install-commands".to_string()) {
-        for cmd in profconf.get_map().unwrap().get("install-commands").unwrap().keys() {
+    if let Some(section) = profconf.get_map().and_then(|map| map.get("install-commands").cloned()) {
+        for cmd in section.keys() {
             chroot_exec(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot), cmd)?;
         }
     }
 
     // Restore system configuration
-    if profconf.sections().contains(&"system-configuration".to_string()) {
+    if let Some(section) = profconf.get_map().and_then(|map| map.get("system-configuration").cloned()) {
         let mut system_conf: Vec<String> = Vec::new();
-        for path in profconf.get_map().unwrap().get("system-configuration").unwrap().keys() {
+        for path in section.keys() {
             // Check if a file or directory exists
             if !metadata(path).is_ok() {
                 system_conf.push(path.to_string());
@@ -569,8 +569,8 @@ pub fn uninstall_package_helper(snapshot: &str, pkgs: &Vec<String>, noconfirm: b
 
     for pkg in pkgs {
         let mut pkgs_list: Vec<String> = Vec::new();
-        if profconf.sections().contains(&"profile-packages".to_string()) {
-            for pkg in profconf.get_map().unwrap().get("profile-packages").unwrap().keys() {
+        if let Some(section) = profconf.get_map().and_then(|map| map.get("profile-packages").cloned()) {
+            for pkg in section.keys() {
                 pkgs_list.push(pkg.to_string());
             }
         }
