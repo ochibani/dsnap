@@ -382,14 +382,24 @@ fn main() {
                     Ok(target_dep) => {
                         // Save deployed snapshots tmp
                         let source_dep = get_tmp();
-                        let mut deploy_tmp = OpenOptions::new().truncate(true)
-                                                               .create(true)
-                                                               .read(true)
-                                                               .write(true)
-                                                               .open("/.snapshots/dsnap/deploy-tmp").unwrap();
-                        let tmp = format!("{}\n{}", source_dep,target_dep);
-                        deploy_tmp.write_all(tmp.as_bytes()).unwrap();
-                        println!("Snapshot {} deployed to '/'.", snapshot);
+                        match OpenOptions::new().truncate(true)
+                                                 .create(true)
+                                                 .read(true)
+                                                 .write(true)
+                                                 .open("/.snapshots/dsnap/deploy-tmp") {
+                            Ok(mut deploy_tmp) => {
+                                let tmp = format!("{}\n{}", source_dep,target_dep);
+                                if let Err(e) = deploy_tmp.write_all(tmp.as_bytes()) {
+                                    eprintln!("Failed to record deployed snapshot: {}", e);
+                                    return;
+                                }
+                                println!("Snapshot {} deployed to '/'.", snapshot);
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to open deployment state file: {}", e);
+                                return;
+                            }
+                        }
                     },
                     Err(e) => eprintln!("{}", e),
                 }
