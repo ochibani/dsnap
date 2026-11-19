@@ -796,7 +796,7 @@ fn comment_after_hash(line: &mut String) -> &str {
 // Delete tree or branch
 pub fn delete_node(snapshots: &Vec<String>, quiet: bool, nuke: bool) -> Result<(), Error> {
     // Get some values
-    let current_snapshot = get_current_snapshot();
+    let current_snapshot = get_current_snapshot()?;
     let next_snapshot = get_next_snapshot();
     let mut run = false;
 
@@ -1423,9 +1423,9 @@ pub fn get_aux_tmp(tmp: String, secondary: bool) -> String {
 }
 
 // Get current snapshot
-pub fn get_current_snapshot() -> String {
-    let csnapshot = read_to_string("/usr/share/dsnap/snap").unwrap();
-    csnapshot.trim_end().to_string()
+pub fn get_current_snapshot() -> Result<String, Error> {
+    let csnapshot = read_to_string("/usr/share/dsnap/snap")?;
+    Ok(csnapshot.trim_end().to_string())
 }
 
 // Get snapshot name in tmp
@@ -2040,10 +2040,10 @@ pub fn install(snapshot: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<()
 
 // Install live
 pub fn install_live(pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
-    let snapshot = &get_current_snapshot();
+    let snapshot = get_current_snapshot()?;
     let tmp = get_tmp();
     dsnap_mounts(&tmp, "").map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
-    let run = install_package_helper_live(snapshot, &tmp, &pkgs, noconfirm);
+    let run = install_package_helper_live(&snapshot, &tmp, &pkgs, noconfirm);
     // Umount even when the install failed, otherwise the mounts leak
     if let Err(e) = dsnap_umounts(&tmp, "") {
         if run.is_ok() {
@@ -2364,13 +2364,13 @@ pub fn install_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: &s
             }
         }
 
-    } else if live && snapshot != get_current_snapshot() {
+    } else if live && snapshot != &get_current_snapshot()? {
         // Prevent live option if snapshot is not current snapshot
         return Err(Error::new(ErrorKind::Unsupported,
                               "Can't use the live option with any other snapshot than the current one.".to_string()));
 
     // Do live install only if: live flag is used OR target snapshot is current
-    } else if live && snapshot == get_current_snapshot() {
+    } else if live && snapshot == &get_current_snapshot()? {
         if !profile.is_empty() {
             // Live profile installation
             install_profile_live(snapshot, profile, force, user_profile, noconfirm)?;
@@ -3170,7 +3170,7 @@ pub fn cp_reflink_no_clobber(src: impl AsRef<str>, dst: impl AsRef<str>) -> Resu
 
 // System reset
 pub fn reset() -> Result<(), Error> {
-    let current_snapshot = get_current_snapshot();
+    let current_snapshot = get_current_snapshot()?;
     let msg = "All snapshots will be permanently deleted and cannot be retrieved, are you absolutely certain you want to continue?";
     let reset_msg = "The system will restart automatically to complete the reset. Do you want to continue?";
     if yes_no(msg) && yes_no(reset_msg) {
@@ -3864,10 +3864,11 @@ pub fn tree_run(treename: &str, cmd: &str) -> Result<(), Error> {
 }
 
 // Calls print function
-pub fn tree_show() {
+pub fn tree_show() -> Result<(), Error> {
     // Import tree file
-    let tree = fstree().unwrap();
+    let tree = fstree().map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
     tree_print(&tree);
+    Ok(())
 }
 
 // Sync tree and all its snapshots
@@ -3904,7 +3905,7 @@ pub fn tree_sync(treename: &str, live: bool) -> Result<(), Error> {
                     // Pre-sync
                     tree_sync_helper(treename, &branch, "chr")?;
                     // Live sync
-                    if live && &branch == &get_current_snapshot() {
+                    if live && branch == get_current_snapshot()? {
                         // Post-sync
                         tree_sync_helper(&branch, &get_tmp(), "")?;
                     }
@@ -4206,13 +4207,13 @@ pub fn uninstall_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: 
             }
         }
 
-    } else if live && snapshot != get_current_snapshot() {
+    } else if live && snapshot != &get_current_snapshot()? {
         // Prevent live Uninstall except for current snapshot
         return Err(Error::new(ErrorKind::Unsupported,
                               "Can't use the live option with any other snapshot than the current one.".to_string()));
 
     // Do live uninstall only if: live flag is used OR target snapshot is current
-    } else if live && snapshot == get_current_snapshot() {
+    } else if live && snapshot == &get_current_snapshot()? {
         if !profile.is_empty() {
             // Live profile uninstall
             uninstall_profile_live(snapshot, profile, user_profile, noconfirm)?;
@@ -4234,7 +4235,7 @@ pub fn uninstall_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: 
 
 // Saves changes made to /etc to snapshot
 pub fn update_etc() -> Result<(), Error> {
-    let snapshot = get_current_snapshot();
+    let snapshot = get_current_snapshot()?;
     let tmp = get_tmp();
 
     // Make sure snapshot is not base snapshot

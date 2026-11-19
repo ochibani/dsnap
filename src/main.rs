@@ -63,8 +63,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Run noninteractive_update
@@ -139,8 +144,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Run update_boot
@@ -158,8 +168,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Get desc value
@@ -195,8 +210,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Get cmd value
@@ -217,8 +237,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Get desc value
@@ -245,8 +270,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Run clone_branch
@@ -264,8 +294,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Run clone_recursive
@@ -295,7 +330,10 @@ fn main() {
             // Current snapshot
             Some(("current", _matches)) => {
                 // Run get_current_snapshot
-                println!("{}", get_current_snapshot());
+                match get_current_snapshot() {
+                    Ok(snap) => println!("{}", snap),
+                    Err(e) => eprintln!("{}", e),
+                }
             }
             // Delete
             Some(("del", del_matches)) => {
@@ -321,8 +359,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Optional value
@@ -354,8 +397,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Get desc value
@@ -389,8 +437,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Run snapshot_config_edit
@@ -408,8 +461,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Run snapshot_profile_edit
@@ -454,8 +512,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Get dest value
@@ -499,7 +562,13 @@ fn main() {
                     match run {
                         Ok(_) => {
                             let snapshot = if snapshot.is_empty() {
-                                get_current_snapshot().to_string()
+                                match get_current_snapshot() {
+                                    Ok(snap) => snap,
+                                    Err(e) => {
+                                        eprintln!("{}", e);
+                                        String::new()
+                                    }
+                                }
                             } else {
                                 snapshot.clone()
                             };
@@ -511,7 +580,13 @@ fn main() {
                         },
                         Err(e) => {
                             let snapshot = if snapshot.is_empty() {
-                                get_current_snapshot().to_string()
+                                match get_current_snapshot() {
+                                    Ok(snap) => snap,
+                                    Err(e) => {
+                                        eprintln!("{}", e);
+                                        String::new()
+                                    }
+                                }
                             } else {
                                 snapshot.clone()
                             };
@@ -540,8 +615,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Run hollow
@@ -559,8 +639,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Run immutability_disable
@@ -578,8 +663,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Run immutability_enable
@@ -639,8 +729,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Get pkgs value
@@ -691,8 +786,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // chr value
@@ -755,8 +855,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Get desc value
@@ -790,8 +895,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Run refresh
@@ -830,8 +940,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Get cmds value
@@ -859,8 +974,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Optional values
@@ -881,8 +1001,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Get pkgs value
@@ -936,7 +1061,9 @@ fn main() {
             // Tree
             Some(("tree", _matches)) => {
                 //Run tree_show
-                tree_show();
+                if let Err(e) = tree_show() {
+                    eprintln!("{}", e);
+                }
             }
             // Tree remove
             Some(("tremove", tremove_matches)) => {
@@ -946,8 +1073,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Get pkgs value
@@ -995,8 +1127,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let treename = get_current_snapshot();
-                    treename
+                    match get_current_snapshot() {
+                        Ok(treename) => treename,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Get cmds value
@@ -1019,8 +1156,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Run tree_upgrade
@@ -1038,8 +1180,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Get pkgs value
@@ -1088,8 +1235,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Run snapshot_unlock
@@ -1107,8 +1259,13 @@ fn main() {
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
-                    let snap = get_current_snapshot();
-                    snap
+                    match get_current_snapshot() {
+                        Ok(snap) => snap,
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            return;
+                        }
+                    }
                 };
 
                 // Optional value

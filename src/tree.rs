@@ -216,7 +216,7 @@ pub fn return_children(tree: &PyObject, id: &str) -> Result<Vec<String>, PyErr> 
 // Print out tree with descriptions
 pub fn tree_print(tree: &PyObject) {
     Python::with_gil(|py| {
-        let snapshot = get_current_snapshot();
+        let snapshot = get_current_snapshot().unwrap_or_default();
 
         // From anytree import AsciiStyle, RenderTree
         let anytree =  py.import_bound("anytree").unwrap();

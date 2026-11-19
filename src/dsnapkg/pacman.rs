@@ -175,7 +175,7 @@ pub fn fix_package_db(snapshot: &str) -> Result<(), Error> {
                        format!("Snapshot {} appears to be in use. If you're certain it's not in use, clear lock with 'dsnap unlock -s {}'.",
                                snapshot,snapshot)));
 
-    } else if snapshot.is_empty() && get_current_snapshot() == "0" {
+    } else if snapshot.is_empty() && get_current_snapshot()? == "0" {
         // Base snapshot unsupported
         return Err(Error::new(ErrorKind::Unsupported, format!("Snapshot 0 (base) should not be modified.")));
 
@@ -268,7 +268,7 @@ pub fn fix_package_db(snapshot: &str) -> Result<(), Error> {
             }
         }
         if snapshot.is_empty() {
-            let snapshot = get_current_snapshot();
+            let snapshot = get_current_snapshot()?;
             prepare(&snapshot)?;
             refresh_helper(&snapshot)?;
         }
