@@ -1598,7 +1598,7 @@ pub fn immutability_disable(snapshot: &str) -> Result<(), Error> {
 
             } else {
                 // Disable immutability
-                set_subvolume_read_only(&format!("/.snapshots/rootfs/snapshot-{}", snapshot), false).unwrap();
+                set_subvolume_read_only(&format!("/.snapshots/rootfs/snapshot-{}", snapshot), false)?;
                 File::create(format!("/.snapshots/rootfs/snapshot-{}/usr/share/dsnap/mutable", snapshot))?;
                 write_desc(snapshot, " MUTABLE ", false)?;
             }
@@ -1627,7 +1627,7 @@ pub fn immutability_enable(snapshot: &str) -> Result<(), Error> {
             } else {
                 // Enable immutability
                 std::fs::remove_file(format!("/.snapshots/rootfs/snapshot-{}/usr/share/dsnap/mutable", snapshot))?;
-                set_subvolume_read_only(&format!("/.snapshots/rootfs/snapshot-{}", snapshot), true).unwrap();
+                set_subvolume_read_only(&format!("/.snapshots/rootfs/snapshot-{}", snapshot), true)?;
                 // Read the desc file into a string
                 let mut contents = std::fs::read_to_string(format!("/.snapshots/dsnap/snapshots/{}-desc", snapshot))?;
                 // Replace MUTABLE word with an empty string
