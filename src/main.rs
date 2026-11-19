@@ -85,7 +85,13 @@ fn main() {
                 let path: String = base_import_matches.get_many::<String>("SNAPSHOT_PATH").unwrap().map(|s| format!("{}", s)).collect();
 
                 // Get tmp_dir value
-                let tmp_dir = tempfile::TempDir::new_in("/.snapshots/tmp").unwrap();
+                let tmp_dir = match tempfile::TempDir::new_in("/.snapshots/tmp") {
+                    Ok(dir) => dir,
+                    Err(e) => {
+                        eprintln!("Failed to create temporary directory: {}", e);
+                        return;
+                    }
+                };
 
                 // Run import_base
                 let run = import_base(&path, &tmp_dir);
@@ -96,19 +102,18 @@ fn main() {
                                 println!("New base snapshot has been successfully imported.")
                             } else {
                                 // Clean chroot mount directories
-                                chr_delete("0").unwrap();
+                                if let Err(e) = chr_delete("0") {
+                                    eprintln!("Failed to clean chroot after base import failure: {}", e);
+                                }
                                 eprintln!("Failed to import new base snapshot.")
                             }
                         },
-                        Err(snapshot) => {
-                            // Clean tmp
-                            if Path::new(&format!("{}/{}", tmp_dir.path().to_str().unwrap(),snapshot)).try_exists().unwrap() {
-                                #[cfg(feature = "btrfs")]
-                                btrfs::delete_subvolume(&format!("{}/{}", tmp_dir.path().to_str().unwrap(),snapshot)).unwrap();
-                            }
+                        Err(e) => {
                             // Clean chroot mount directories
-                            chr_delete("0").unwrap();
-                            eprintln!("{}", snapshot);
+                            if let Err(clean_err) = chr_delete("0") {
+                                eprintln!("Failed to clean chroot after base import failure: {}", clean_err);
+                            }
+                            eprintln!("{}", e);
                         },
                     }
                 } else {
@@ -531,10 +536,20 @@ fn main() {
                 };
 
                 // Run export
-                if !Path::new("/.snapshots/dsnap/export").try_exists().unwrap() {
-                    Command::new("mkdir").arg("-p")
-                                         .arg("/.snapshots/dsnap/export")
-                                         .status().unwrap();
+                if !Path::new("/.snapshots/dsnap/export").try_exists().unwrap_or(false) {
+                    match Command::new("mkdir").arg("-p")
+                                               .arg("/.snapshots/dsnap/export")
+                                               .status() {
+                        Ok(status) if status.success() => {}
+                        Ok(status) => {
+                            eprintln!("Failed to create export directory (exit status: {}).", status);
+                            return;
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to create export directory: {}", e);
+                            return;
+                        }
+                    }
                 }
 
                 // Run export
@@ -697,7 +712,13 @@ fn main() {
                 let path: String = import_matches.get_many::<String>("SNAPSHOT_PATH").unwrap().map(|s| format!("{}", s)).collect();
 
                 // Get tmp_dir value
-                let tmp_dir = tempfile::TempDir::new_in("/.snapshots/tmp").unwrap();
+                let tmp_dir = match tempfile::TempDir::new_in("/.snapshots/tmp") {
+                    Ok(dir) => dir,
+                    Err(e) => {
+                        eprintln!("Failed to create temporary directory: {}", e);
+                        return;
+                    }
+                };
 
                 // Run import
                 let run = import(snapshot, &path, &desc, &tmp_dir);
@@ -707,13 +728,19 @@ fn main() {
                             println!("Snapshot {} has been successfully imported.", snapshot);
                         },
                         Err(e) => {
-                            // Clean tmp
-                            if Path::new(&format!("{}/{}", tmp_dir.path().to_str().unwrap(),snapshot)).try_exists().unwrap() {
+                            // Best-effort cleanup of a received snapshot left in the temp directory
+                            let tmp_path = tmp_dir.path().to_string_lossy().to_string();
+                            let received = format!("{}/{}", tmp_path, snapshot);
+                            if Path::new(&received).try_exists().unwrap_or(false) {
                                 #[cfg(feature = "btrfs")]
-                                btrfs::delete_subvolume(&format!("{}/{}", tmp_dir.path().to_str().unwrap(),snapshot)).unwrap();
+                                if let Err(clean_err) = btrfs::delete_subvolume(&received) {
+                                    eprintln!("Failed to clean temporary received snapshot: {}", clean_err);
+                                }
                             }
                             // Clean chroot mount directories
-                            chr_delete(&format!("{}", snapshot)).unwrap();
+                            if let Err(clean_err) = chr_delete(&format!("{}", snapshot)) {
+                                eprintln!("Failed to clean chroot after import failure: {}", clean_err);
+                            }
                             eprintln!("{}", e);
                         },
                     }
@@ -802,21 +829,35 @@ fn main() {
                 let exclude = list_matches.get_flag("exclude-dependency");
 
                 // Make sure snapshot exists
-                if !Path::new(&format!("/.snapshots/rootfs/snapshot-{}", snapshot)).try_exists().unwrap() {
-                    eprintln!("Cannot list packages as snapshot {} doesn't exist.", snapshot);
-                } else if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot)).try_exists().unwrap() {
-                    // Make sure snapshot is not in use by another dsnap process
-                    eprintln!("Snapshot {} appears to be in use. If you're certain it's not in use, clear lock with 'dsnap unlock -s {}'.",
-                              snapshot,snapshot);
-                } else {
-                    // Run list
-                    match list(&snapshot, chr, exclude) {
-                        Ok(pkgs) => {
-                            for pkg in pkgs {
-                                println!("{}", pkg);
+                match Path::new(&format!("/.snapshots/rootfs/snapshot-{}", snapshot)).try_exists() {
+                    Ok(false) => {
+                        eprintln!("Cannot list packages as snapshot {} doesn't exist.", snapshot);
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to check snapshot {}: {}", snapshot, e);
+                    }
+                    Ok(true) => {
+                        match Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot)).try_exists() {
+                            Ok(true) => {
+                                // Make sure snapshot is not in use by another dsnap process
+                                eprintln!("Snapshot {} appears to be in use. If you're certain it's not in use, clear lock with 'dsnap unlock -s {}'.",
+                                          snapshot,snapshot);
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to check snapshot {} lock state: {}", snapshot, e);
+                            }
+                            Ok(false) => {
+                                // Run list
+                                match list(&snapshot, chr, exclude) {
+                                    Ok(pkgs) => {
+                                        for pkg in pkgs {
+                                            println!("{}", pkg);
+                                        }
+                                    }
+                                    Err(e) => eprintln!("{}", e),
+                                }
                             }
                         }
-                        Err(e) => eprintln!("{}", e),
                     }
                 }
             }
