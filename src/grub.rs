@@ -10,6 +10,46 @@ use std::process::Command;
 use tempfile::TempDir;
 use walkdir::WalkDir;
 
+// Mount the boot subvolume for the duration of a GRUB write operation.
+// Drop always unmounts, including on early returns, so no mount is leaked.
+struct BootMount {
+    _dir: TempDir,
+    mounted: bool,
+}
+
+impl BootMount {
+    fn new(part: &str) -> Result<Self, Error> {
+        let dir = TempDir::new_in("/.snapshots/tmp")?;
+        #[cfg(feature = "btrfs")]
+        {
+            mount(Some(part), dir.path().as_os_str(),
+                  Some("btrfs"), MsFlags::empty(), Some("subvol=@boot_linux".as_bytes()))?;
+            Ok(Self { _dir: dir, mounted: true })
+        }
+        #[cfg(not(feature = "btrfs"))]
+        {
+            let _ = dir;
+            Err(Error::new(ErrorKind::Unsupported,
+                           "GRUB boot operations require the btrfs feature."))
+        }
+    }
+
+    fn path(&self) -> &Path {
+        self._dir.path()
+    }
+}
+
+impl Drop for BootMount {
+    fn drop(&mut self) {
+        if self.mounted {
+            if let Err(e) = umount2(self._dir.path(), MntFlags::MNT_DETACH) {
+                eprintln!("Failed to unmount boot partition at {}: {}",
+                          self._dir.path().display(), e);
+            }
+        }
+    }
+}
+
 // Delete old grub.cfg
 pub fn delete_old_grub_files(grub: &str) -> Result<(), Error> {
     let bak_path = Path::new(grub).join("BAK");
@@ -66,17 +106,12 @@ pub fn get_grub(snapshot: &str) -> Result<String, Error> {
 pub fn switch_recovery_tmp(snapshot: &str, target_snapshot: &str) -> Result<(), Error> {
     let grub = get_grub(snapshot)?;
     let part = get_part()?;
-    let tmp_boot = TempDir::new_in("/.snapshots/tmp")?;
-
-    // Mount boot partition for writing
-    #[cfg(feature = "btrfs")]
-    mount(Some(part.as_str()), tmp_boot.path().as_os_str(),
-          Some("btrfs"), MsFlags::empty(), Some("subvol=@boot_linux".as_bytes()))?;
+    let boot = BootMount::new(&part)?;
 
     // Swap deployment subvolumes: deploy <-> deploy-aux
     let source_dep = get_recovery_tmp();
     let target_dep = get_recovery_aux_tmp(&source_dep);
-    let boot_location = tmp_boot.path().to_string_lossy();
+    let boot_location = boot.path().to_string_lossy();
 
     // Read the contents of the file into a string
     let target_grub = get_grub(target_snapshot)?;
@@ -185,10 +220,6 @@ pub fn switch_recovery_tmp(snapshot: &str, target_snapshot: &str) -> Result<(), 
                                      .open(grub_cfg)?;
     file.write_all(modified_cfg_contents.as_bytes())?;
 
-    // Umount boot partition
-    umount2(Path::new(&format!("{}", tmp_boot.path().as_os_str().to_string_lossy())),
-            MntFlags::MNT_DETACH)?;
-
     Ok(())
 }
 
@@ -197,12 +228,7 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
     let grub = get_grub(snapshot)?;
     let part = get_part()?;
     let rec_tmp = get_recovery_tmp();
-    let tmp_boot = TempDir::new_in("/.snapshots/tmp")?;
-
-    // Mount boot partition for writing
-    #[cfg(feature = "btrfs")]
-    mount(Some(part.as_str()), tmp_boot.path().as_os_str(),
-          Some("btrfs"), MsFlags::empty(), Some("subvol=@boot_linux".as_bytes()))?;
+    let boot = BootMount::new(&part)?;
 
     // Swap deployment subvolumes: deploy <-> deploy-aux
     let source_dep = get_tmp();
@@ -210,7 +236,7 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
     let target_dep = get_aux_tmp(source_dep.to_string(), secondary);
     let excode = Command::new("cp").args(["-r", "--reflink=auto"])
                       .arg(format!("/.snapshots/rootfs/snapshot-{}/boot/{}", target_dep,grub))
-                      .arg(format!("{}", tmp_boot.path().to_string_lossy()))
+                      .arg(format!("{}", boot.path().to_string_lossy()))
                       .status()?;
     if !excode.success() {
         return Err(Error::new(ErrorKind::Other,
@@ -237,7 +263,7 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
 
     // Recovery GRUB configurations
     if !reset {
-        for boot_location in [&tmp_boot.path().to_string_lossy()] {
+        for boot_location in [&boot.path().to_string_lossy()] {
             // Get old grub configurations
             let grub_path = format!("{}/{}/grub.cfg", boot_location, grub);
             let src_file_path = format!("/.snapshots/rootfs/snapshot-{}/boot/{}/grub.cfg", source_dep,source_grub);
@@ -317,17 +343,13 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
     }
 
     // Switch grub.cfg
-    if grub == "grub" && Path::new(&format!("{}/grub2/grub.cfg", &tmp_boot.path().to_string_lossy())).try_exists()? {
-        copy(format!("{}/{}/grub.cfg", &tmp_boot.path().to_string_lossy(), grub),
-             format!("{}/grub2/grub.cfg", &tmp_boot.path().to_string_lossy()))?;
-    } else if grub != "grub" && Path::new(&format!("{}/grub/grub.cfg", &tmp_boot.path().to_string_lossy())).try_exists()? {
-        copy(format!("{}/{}/grub.cfg", &tmp_boot.path().to_string_lossy(), grub),
-             format!("{}/grub/grub.cfg", &tmp_boot.path().to_string_lossy()))?;
+    if grub == "grub" && Path::new(&format!("{}/grub2/grub.cfg", &boot.path().to_string_lossy())).try_exists()? {
+        copy(format!("{}/{}/grub.cfg", &boot.path().to_string_lossy(), grub),
+             format!("{}/grub2/grub.cfg", &boot.path().to_string_lossy()))?;
+    } else if grub != "grub" && Path::new(&format!("{}/grub/grub.cfg", &boot.path().to_string_lossy())).try_exists()? {
+        copy(format!("{}/{}/grub.cfg", &boot.path().to_string_lossy(), grub),
+             format!("{}/grub/grub.cfg", &boot.path().to_string_lossy()))?;
     }
-
-    // Umount boot partition
-    umount2(Path::new(&format!("{}", tmp_boot.path().as_os_str().to_string_lossy())),
-            MntFlags::MNT_DETACH)?;
 
     Ok(target_dep)
 }
