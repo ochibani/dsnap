@@ -2395,16 +2395,15 @@ pub fn is_efi() -> bool {
 }
 
 // Check if path is mounted
-fn is_mounted(path: &Path) -> bool {
-    let Ok(mount_iter) = MountIter::new() else {
-        return false;
-    };
-    for mount in mount_iter.flatten() {
+fn is_mounted(path: &Path) -> Result<bool, Error> {
+    let mount_iter = MountIter::new().map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+    for mount in mount_iter {
+        let mount = mount.map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
         if mount.dest == path {
-            return true;
+            return Ok(true);
         }
     }
-    false
+    Ok(false)
 }
 
 // Check if path or anything under it is mounted
@@ -2596,7 +2595,7 @@ pub fn post_transactions(snapshot: &str) -> Result<(), Error> {
                                       format!("Please insert valid value for mutable_dirs in /.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot)));
             }
             let mount = format!("/.snapshots/rootfs/snapshot-chr{}/{}", snapshot, mount_path);
-            if is_mounted(Path::new(&mount)) {
+            if is_mounted(Path::new(&mount))? {
                 umount2(Path::new(&mount), MntFlags::MNT_DETACH)?;
             }
         }
@@ -2608,7 +2607,7 @@ pub fn post_transactions(snapshot: &str) -> Result<(), Error> {
                                       format!("Please insert valid value for mutable_dirs_shared in /.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot)));
             }
             let mount = format!("/.snapshots/rootfs/snapshot-chr{}/{}", snapshot, mount_path);
-            if is_mounted(Path::new(&mount)) {
+            if is_mounted(Path::new(&mount))? {
                 umount2(Path::new(&mount), MntFlags::MNT_DETACH)?;
             }
         }
@@ -2624,12 +2623,12 @@ pub fn post_transactions(snapshot: &str) -> Result<(), Error> {
 fn hollow_teardown(snapshot: &str) -> Result<(), Error> {
     // Umount the nested chroot view inside the live-root bind
     let nested = format!("/.snapshots/rootfs/snapshot-chr{}/.snapshots/rootfs/snapshot-chr{}/", snapshot, snapshot);
-    if is_mounted(Path::new(&nested)) {
+    if is_mounted(Path::new(&nested))? {
         umount2(Path::new(&nested), MntFlags::MNT_DETACH)?;
     }
     // Umount the live root bind hollow() put on top of the chroot
     let chr_path = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
-    if is_mounted(Path::new(&chr_path)) {
+    if is_mounted(Path::new(&chr_path))? {
         umount2(Path::new(&chr_path), MntFlags::MNT_DETACH)?;
     }
     // Unwind the chroot mounts prepare() created (resolv, sys, proc, ..., self-bind)
@@ -2652,7 +2651,7 @@ fn hollow_teardown(snapshot: &str) -> Result<(), Error> {
     }
     for mount_path in mount_paths {
         let mount = format!("/.snapshots/rootfs/snapshot-chr{}/{}", snapshot, mount_path);
-        if is_mounted(Path::new(&mount)) {
+        if is_mounted(Path::new(&mount))? {
             umount2(Path::new(&mount), MntFlags::MNT_DETACH)?;
         }
     }
@@ -2954,7 +2953,7 @@ pub fn rebuild(snapshot: &str, snap_num: i32, desc: &str) -> Result<i32, Error> 
                                           format!("Please insert valid value for mutable_dirs in /.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot)));
                 }
                 let mount = format!("/.snapshots/rootfs/snapshot-chr{}/{}", snap_num, mount_path);
-                if is_mounted(Path::new(&mount)) {
+                if is_mounted(Path::new(&mount))? {
                     umount2(Path::new(&mount), MntFlags::MNT_DETACH)?;
                 }
             }
@@ -2966,7 +2965,7 @@ pub fn rebuild(snapshot: &str, snap_num: i32, desc: &str) -> Result<i32, Error> 
                                           format!("Please insert valid value for mutable_dirs_shared in /.snapshots/etc/etc-{}/dsnap/dsnap.conf", snapshot)));
                 }
                 let mount = format!("/.snapshots/rootfs/snapshot-chr{}/{}", snap_num, mount_path);
-                if is_mounted(Path::new(&mount)) {
+                if is_mounted(Path::new(&mount))? {
                     umount2(Path::new(&mount), MntFlags::MNT_DETACH)?;
                 }
             }
@@ -3500,7 +3499,7 @@ pub fn snapshot_unlock(snapshot: &str) -> Result<(), Error> {
     let path = Path::new(&print_path);
     if path.try_exists()? {
         // Make sure snapshot is not mounted
-        if !is_mounted(path) {
+        if !is_mounted(path)? {
             let path_vec = vec!["boot", "etc", "var"];
             for path in path_vec {
                 if Path::new(&format!("/.snapshots/{}/{}-chr{}", path,path,snapshot)).try_exists()? {
@@ -3637,7 +3636,7 @@ pub fn temp_snapshots_clear() -> Result<(), Error> {
         if !is_temp {
             continue;
         }
-        if !is_mounted(&snapshot) {
+        if !is_mounted(&snapshot)? {
             delete_subvolume(&s)?;
         } else {
             eprintln!("{} is busy.", s);
