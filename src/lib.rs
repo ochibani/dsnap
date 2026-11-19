@@ -266,67 +266,35 @@ fn check_profile(snapshot: &str) -> Result<(), Error> {
     println!("Saving the changes, Please wait.");
     let mut write_options = WriteOptions::default();
     write_options.blank_lines_between_sections = 1;
+
+    fn section_keys(conf: &Ini, section: &str) -> Vec<String> {
+        conf.get_map()
+            .and_then(|m| m.get(section).cloned())
+            .map(|s| s.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
     // Get values before edit
     let old_cfile = format!("/.snapshots/etc/etc-{}/dsnap/profile", snapshot);
     let mut old_profconf = Ini::new_cs();
     old_profconf.set_comment_symbols(&['#']);
     old_profconf.set_multiline(true);
-    old_profconf.load(&old_cfile).unwrap();
-    let mut old_system_pkgs: Vec<String> = Vec::new();
-    if old_profconf.sections().contains(&"system-packages".to_string()) {
-        for pkg in old_profconf.get_map().unwrap().get("system-packages").unwrap().keys() {
-            old_system_pkgs.push(pkg.to_string());
-        }
-    }
-    let mut old_pkgs: Vec<String> = Vec::new();
-    if old_profconf.sections().contains(&"profile-packages".to_string()) {
-        for pkg in old_profconf.get_map().unwrap().get("profile-packages").unwrap().keys() {
-            old_pkgs.push(pkg.to_string());
-        }
-    }
-    let mut old_enable: Vec<String> = Vec::new();
-    if old_profconf.sections().contains(&"enable-services".to_string()) {
-        for service in old_profconf.get_map().unwrap().get("enable-services").unwrap().keys() {
-            old_enable.push(service.to_string());
-        }
-    }
-    let mut old_disable: Vec<String> = Vec::new();
-    if old_profconf.sections().contains(&"disable-services".to_string()) {
-        for service in old_profconf.get_map().unwrap().get("disable-services").unwrap().keys() {
-            old_disable.push(service.to_string());
-        }
-    }
+    old_profconf.load(&old_cfile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
+    let old_system_pkgs = section_keys(&old_profconf, "system-packages");
+    let old_pkgs = section_keys(&old_profconf, "profile-packages");
+    let old_enable = section_keys(&old_profconf, "enable-services");
+    let old_disable = section_keys(&old_profconf, "disable-services");
 
     // Get new values
     let cfile = format!("/.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot);
     let mut profconf = Ini::new_cs();
     profconf.set_comment_symbols(&['#']);
     profconf.set_multiline(true);
-    profconf.load(&cfile).unwrap();
-    let mut new_system_pkgs: Vec<String> = Vec::new();
-    if profconf.sections().contains(&"system-packages".to_string()) {
-        for pkg in profconf.get_map().unwrap().get("system-packages").unwrap().keys() {
-            new_system_pkgs.push(pkg.to_string());
-        }
-    }
-    let mut new_pkgs: Vec<String> = Vec::new();
-    if profconf.sections().contains(&"profile-packages".to_string()) {
-        for pkg in profconf.get_map().unwrap().get("profile-packages").unwrap().keys() {
-            new_pkgs.push(pkg.to_string());
-        }
-    }
-    let mut new_enable: Vec<String> = Vec::new();
-    if profconf.sections().contains(&"enable-services".to_string()) {
-        for service in profconf.get_map().unwrap().get("enable-services").unwrap().keys() {
-            new_enable.push(service.to_string());
-        }
-    }
-    let mut new_disable: Vec<String> = Vec::new();
-    if profconf.sections().contains(&"disable-services".to_string()) {
-        for service in profconf.get_map().unwrap().get("disable-services").unwrap().keys() {
-            new_disable.push(service.to_string());
-        }
-    }
+    profconf.load(&cfile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
+    let new_system_pkgs = section_keys(&profconf, "system-packages");
+    let new_pkgs = section_keys(&profconf, "profile-packages");
+    let new_enable = section_keys(&profconf, "enable-services");
+    let new_disable = section_keys(&profconf, "disable-services");
 
     // Apply changes
     // Install new system package(s)
@@ -357,12 +325,12 @@ fn check_profile(snapshot: &str) -> Result<(), Error> {
     // Disable removed service(s)
     let mut services_to_disable: Vec<String> = Vec::new();
     for service in &old_enable {
-        if !new_enable.contains(&service) {
+        if !new_enable.contains(service) {
             services_to_disable.push(service.to_string());
         }
     }
-    for service in new_disable {
-        if !old_disable.contains(&service) {
+    for service in &new_disable {
+        if !old_disable.contains(service) && !services_to_disable.contains(service) {
             services_to_disable.push(service.to_string());
         }
     }
@@ -372,8 +340,8 @@ fn check_profile(snapshot: &str) -> Result<(), Error> {
 
     // Enable new service(s)
     let mut services_to_enable: Vec<String> = Vec::new();
-    for service in new_enable {
-        if !old_enable.contains(&service) {
+    for service in &new_enable {
+        if !old_enable.contains(service) {
             services_to_enable.push(service.to_string());
         }
     }
@@ -383,22 +351,22 @@ fn check_profile(snapshot: &str) -> Result<(), Error> {
 
     // Uninstall package(s) not in the new system-packages list
     let mut system_pkgs_to_uninstall: Vec<String> = Vec::new();
-    for pkg in old_system_pkgs {
-        if !new_system_pkgs.contains(&pkg) && !new_pkgs.contains(&pkg) {
+    for pkg in &old_system_pkgs {
+        if !new_system_pkgs.contains(pkg) && !new_pkgs.contains(pkg) {
             system_pkgs_to_uninstall.push(pkg.to_string());
         }
     }
     if !system_pkgs_to_uninstall.is_empty() && !is_system_locked() {
         uninstall_package_helper_chroot(snapshot, &system_pkgs_to_uninstall, true)?;
     } else if !system_pkgs_to_uninstall.is_empty() && is_system_locked() {
-        // Prevent remove of system package from profile if not installed
-        return Err(Error::new(ErrorKind::Unsupported, format!("Remove system package(s) is not allowed.")));
+        // Prevent remove of system package from profile
+        return Err(Error::new(ErrorKind::Unsupported, "Remove system package(s) is not allowed.".to_string()));
     }
 
     // Uninstall package(s) not in the new profile-packages list
     let mut pkgs_to_uninstall: Vec<String> = Vec::new();
-    for pkg in old_pkgs {
-        if !new_pkgs.contains(&pkg) && !new_system_pkgs.contains(&pkg) {
+    for pkg in &old_pkgs {
+        if !new_pkgs.contains(pkg) && !new_system_pkgs.contains(pkg) {
             pkgs_to_uninstall.push(pkg.to_string());
         }
     }
@@ -411,48 +379,43 @@ fn check_profile(snapshot: &str) -> Result<(), Error> {
     for pkg in &pkg_list {
         let mut pkgs: Vec<String> = Vec::new();
         if profconf.sections().contains(&"system-packages".to_string()) {
-            for pkg in profconf.get_map().unwrap().get("system-packages").unwrap().keys() {
-                // Remove package from profile if not installed and lock feature is not enabled
-                if !pkg_list.contains(pkg) && !is_system_locked() {
-                    profconf.remove_key("system-packages", pkg);
-                } else if !pkg_list.contains(pkg) && is_system_locked() {
-                    // Prevent remove of system package from profile if not installed
-                    return Err(Error::new(ErrorKind::Unsupported, format!("Remove system package(s) is not allowed.")));
+            for sys_pkg in section_keys(&profconf, "system-packages") {
+                if !pkg_list.contains(&sys_pkg) && !is_system_locked() {
+                    profconf.remove_key("system-packages", &sys_pkg);
+                } else if !pkg_list.contains(&sys_pkg) && is_system_locked() {
+                    return Err(Error::new(ErrorKind::Unsupported, "Remove system package(s) is not allowed.".to_string()));
                 }
             }
             profconf.pretty_write(&cfile, &write_options)?;
         }
         if profconf.sections().contains(&"profile-packages".to_string()) {
-            for pkg in profconf.get_map().unwrap().get("profile-packages").unwrap().keys() {
-                // Remove package from profile if not installed
-                if !pkg_list.contains(pkg) {
-                    profconf.remove_key("profile-packages", pkg);
+            for prof_pkg in section_keys(&profconf, "profile-packages") {
+                if !pkg_list.contains(&prof_pkg) {
+                    profconf.remove_key("profile-packages", &prof_pkg);
+                } else {
+                    pkgs.push(prof_pkg);
                 }
-                pkgs.push(pkg.to_string());
             }
             profconf.pretty_write(&cfile, &write_options)?;
         }
-        // Add package to profile if installed
-        if !pkgs.contains(&pkg) {
-            profconf.set("profile-packages", &pkg, None);
+        if !pkgs.contains(pkg) {
+            profconf.set("profile-packages", pkg, None);
         }
         profconf.pretty_write(&cfile, &write_options)?;
     }
 
     // Check services
-    // Add service(s) enabled by systemctl
     if profconf.sections().contains(&"enable-services".to_string()) {
-        for service in profconf.get_map().unwrap().get("enable-services").unwrap().keys() {
-            if !is_service_enabled(snapshot, service) {
+        for service in section_keys(&profconf, "enable-services") {
+            if !is_service_enabled(snapshot, &service) {
                 profconf.remove_key("enable-services", &service);
             }
         }
         profconf.pretty_write(&cfile, &write_options)?;
     }
-    // Remove service(s) disabled by systemctl
     if profconf.sections().contains(&"disable-services".to_string()) {
-        for service in profconf.get_map().unwrap().get("disable-services").unwrap().keys() {
-            if is_service_enabled(snapshot, service) {
+        for service in section_keys(&profconf, "disable-services") {
+            if is_service_enabled(snapshot, &service) {
                 profconf.remove_key("disable-services", &service);
             }
         }
@@ -460,12 +423,13 @@ fn check_profile(snapshot: &str) -> Result<(), Error> {
     }
 
     // Prevent duplication
-    for pkg in new_system_pkgs {
-        if new_pkgs.contains(&pkg) {
-            profconf.remove_key("profile-packages", &pkg);
-            profconf.pretty_write(&cfile, &write_options)?;
+    let current_profile_pkgs = section_keys(&profconf, "profile-packages");
+    for pkg in &new_system_pkgs {
+        if current_profile_pkgs.contains(pkg) {
+            profconf.remove_key("profile-packages", pkg);
         }
     }
+    profconf.pretty_write(&cfile, &write_options)?;
 
     // Block automatic removal of system packages
     lockpkg(snapshot, &profconf)?;
