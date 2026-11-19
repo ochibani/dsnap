@@ -91,7 +91,7 @@ pub fn cache_copy(snapshot: &str, prepare: bool) -> Result<(), Error> {
 
 // Clean dnf cache
 pub fn clean_cache(snapshot: &str) -> Result<(), Error> {
-    if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/var/cache/dnf", snapshot)).try_exists().unwrap() {
+    if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/var/cache/dnf", snapshot)).try_exists()? {
         remove_dir_content(&format!("/.snapshots/rootfs/snapshot-chr{}/var/cache/dnf", snapshot))?;
     }
     Ok(())
