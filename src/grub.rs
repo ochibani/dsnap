@@ -8,7 +8,7 @@ use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Write};
 use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
-use walkdir::{DirEntry, WalkDir};
+use walkdir::WalkDir;
 
 // Delete old grub.cfg
 pub fn delete_old_grub_files(grub: &str) -> Result<(), Error> {
