@@ -983,7 +983,9 @@ fn main() {
                 match run {
                     Ok(_) => {
                         // Reboot system
-                        Command::new("reboot").status().unwrap();
+                        if let Err(e) = Command::new("reboot").status() {
+                            eprintln!("Failed to reboot: {}", e);
+                        }
                     },
                     Err(e) => eprintln!("{}", e),
                 }
