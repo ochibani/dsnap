@@ -447,11 +447,11 @@ fn main() {
                     Err(e) => eprintln!("{}", e),
                 }
             }
-            // Edit dsnap configuration
-            Some(("edit", edit_matches)) => {
+            // Edit per-snapshot dsnap configuration
+            Some(("edit-config", edit_config_matches)) => {
                 // Get snapshot value
-                let snapshot = if edit_matches.contains_id("SNAPSHOT") {
-                    let snap = edit_matches.get_one::<i32>("SNAPSHOT").unwrap();
+                let snapshot = if edit_config_matches.contains_id("SNAPSHOT") {
+                    let snap = edit_config_matches.get_one::<i32>("SNAPSHOT").unwrap();
                     let snap_to_string = format!("{}", snap);
                     snap_to_string
                 } else {
@@ -464,7 +464,7 @@ fn main() {
                     }
                 };
 
-                // Run snapshot_config_edit
+                // Run snapshot_config_edit (edits dsnap.conf)
                 let run = snapshot_config_edit(&snapshot);
                 match run {
                     Ok(_) => (),

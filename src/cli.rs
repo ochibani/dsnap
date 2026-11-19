@@ -230,20 +230,22 @@ pub fn cli() -> Command {
                          .value_parser(clap::value_parser!(i32))
                          .required(true)
                          .help("target snapshot"),),)
-        // Edit dsnap configuration
-        .subcommand(Command::new("edit")
-                    .alias("edit-conf")
-                    .about("Edit configuration for a snapshot")
+        // Edit per-snapshot dsnap configuration
+        .subcommand(Command::new("edit-config")
+                    .alias("config")
+                    .alias("conf")
+                    .about("Edit per-snapshot dsnap configuration (dsnap.conf)")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
                          .alias("snap")
                          .short('s')
                          .value_parser(clap::value_parser!(i32))
                          .help("snapshot number"),),)
-        // Edit live profile
+        // Edit per-snapshot profile
         .subcommand(Command::new("edit-profile")
                     .alias("edit-prof")
-                    .about("Edit snapshot profile")
+                    .alias("profile")
+                    .about("Edit per-snapshot package profile (profile)")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
                          .alias("snap")
