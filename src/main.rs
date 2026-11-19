@@ -615,7 +615,9 @@ fn main() {
                             } else {
                                 snapshot.clone()
                             };
-                            chr_delete(&snapshot).unwrap();
+                            if let Err(clean_err) = chr_delete(&snapshot) {
+                                eprintln!("Failed to clean chroot after fixdb failure: {}", clean_err);
+                            }
                             eprintln!("{}", e);
                         },
                     }
