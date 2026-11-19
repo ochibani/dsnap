@@ -793,7 +793,7 @@ fn comment_after_hash(line: &mut String) -> &str {
 pub fn delete_node(snapshots: &Vec<String>, quiet: bool, nuke: bool) -> Result<(), Error> {
     // Get some values
     let current_snapshot = get_current_snapshot()?;
-    let next_snapshot = get_next_snapshot();
+    let next_snapshot = get_next_snapshot()?;
     let mut run = false;
 
     // Iterating over snapshots
@@ -1441,32 +1441,29 @@ fn get_import_snapshot_name(path: &Path) -> Result<String, Error> {
 }
 
 // Get deployed snapshot
-pub fn get_next_snapshot() -> String {
+pub fn get_next_snapshot() -> Result<String, Error> {
     let tmp = get_tmp();
-    let Ok(file) = File::open("/.snapshots/dsnap/deploy-tmp") else {
-        return "".to_string();
+    let file = match File::open("/.snapshots/dsnap/deploy-tmp") {
+        Ok(file) => file,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(String::new()),
+        Err(e) => return Err(e),
     };
     let mut d = String::new();
     let reader = BufReader::new(file);
     for line in reader.lines() {
-        let Ok(line) = line else {
-            continue;
-        };
+        let line = line?;
         if line != tmp {
             d.push_str(&line);
             break;
         }
     }
     if d.is_empty() {
-        return "".to_string();
+        return Ok(String::new());
     }
 
     // Make sure next snapshot exists
     let snap_path = format!("/.snapshots/rootfs/snapshot-{}/usr/share/dsnap/snap", d);
-    match read_to_string(&snap_path) {
-        Ok(contents) => contents.trim().to_string(),
-        Err(_) => "".to_string(),
-    }
+    Ok(read_to_string(&snap_path)?.trim().to_string())
 }
 
 // Get drive partition
