@@ -4,7 +4,7 @@ use crate::{chroot_exec, deploy_recovery, detect_distro, get_aux_tmp, get_part, 
 use chrono::{Local, NaiveDateTime};
 use nix::mount::{MntFlags, mount, MsFlags, umount2};
 use std::fs::{copy, DirBuilder, File};
-use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Write};
+use std::io::{Error, ErrorKind, Read, Write};
 use std::path::Path;
 use std::process::Command;
 use tempfile::{NamedTempFile, TempDir};
@@ -21,6 +21,111 @@ fn atomic_write(path: &Path, content: &str) -> Result<(), Error> {
     }
     tmp.persist(path).map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
     Ok(())
+}
+
+// Count unbalanced braces outside quotes and comments. GRUB menuentry bodies
+// can contain nested braces, so the first "}" is not necessarily the end.
+fn brace_delta(line: &str) -> i32 {
+    let mut delta = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    for ch in line.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' && (in_single || in_double) {
+            escaped = true;
+            continue;
+        }
+        match ch {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '#' if !in_single && !in_double => break,
+            '{' if !in_single && !in_double => delta += 1,
+            '}' if !in_single && !in_double => delta -= 1,
+            _ => {}
+        }
+    }
+    delta
+}
+
+fn is_menuentry_start(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    !trimmed.starts_with('#') && trimmed.starts_with("menuentry")
+}
+
+fn extract_first_menuentry(config: &str) -> Result<String, Error> {
+    let mut in_section = false;
+    let mut started = false;
+    let mut depth = 0;
+    let mut block: Vec<&str> = Vec::new();
+
+    for line in config.lines() {
+        if !in_section {
+            if line.contains("BEGIN /etc/grub.d/10_linux") {
+                in_section = true;
+            }
+            continue;
+        }
+        if !started {
+            if is_menuentry_start(line) {
+                started = true;
+                depth = brace_delta(line);
+                block.push(line);
+                if depth <= 0 {
+                    return Ok(block.join("\n"));
+                }
+            }
+            continue;
+        }
+        block.push(line);
+        depth += brace_delta(line);
+        if depth <= 0 {
+            return Ok(block.join("\n"));
+        }
+    }
+    Err(Error::new(ErrorKind::NotFound,
+                   "Could not find a menuentry in the 10_linux GRUB section."))
+}
+
+fn is_recovery_menuentry(line: &str) -> bool {
+    is_menuentry_start(line)
+        && (line.contains("'Recovery Snapshot'")
+            || line.contains("\"Recovery Snapshot\"")
+            || line.contains("'Recovery Mode'")
+            || line.contains("\"Recovery Mode\""))
+}
+
+fn remove_menuentries(config: &str, predicate: impl Fn(&str) -> bool) -> String {
+    let lines: Vec<&str> = config.lines().collect();
+    let mut out: Vec<&str> = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        if is_menuentry_start(line) && predicate(line) {
+            let mut depth = brace_delta(line);
+            i += 1;
+            while i < lines.len() && depth > 0 {
+                depth += brace_delta(lines[i]);
+                i += 1;
+            }
+            continue;
+        }
+        out.push(line);
+        i += 1;
+    }
+    let mut result = out.join("\n");
+    if config.ends_with('\n') {
+        result.push('\n');
+    }
+    result
+}
+
+fn remove_recovery_entries(config: &str) -> String {
+    let cleaned = config.replace("### END /etc/grub.d/41_custom ###", "");
+    remove_menuentries(&cleaned, is_recovery_menuentry)
 }
 
 // Mount the boot subvolume for the duration of a GRUB write operation.
@@ -130,61 +235,19 @@ pub fn switch_recovery_tmp(snapshot: &str, target_snapshot: &str) -> Result<(), 
     let target_grub = get_grub(target_snapshot)?;
     let grub_cfg = format!("{}/{}/grub.cfg", boot_location, target_grub);
     let src_file_path = format!("/.snapshots/rootfs/snapshot-{}/boot/{}/grub.cfg", source_dep,grub);
-    let sfile = if Path::new(&src_file_path).is_file() {
+    let mut sfile = if Path::new(&src_file_path).is_file() {
         File::open(&src_file_path)?
     } else {
         File::open(format!("/.snapshots/rootfs/snapshot-{}/boot/{}/grub.cfg", target_dep,grub))?
     };
-    let reader = BufReader::new(sfile);
-    let mut gconf = String::new();
-    let mut in_10_linux = false;
-    let mut menu = false;
-    for line in reader.lines() {
-        let line = line?;
-        if line.contains("BEGIN /etc/grub.d/10_linux") {
-            in_10_linux = true;
-        } else if in_10_linux {
-            if line.contains("menuentry") {
-                menu = true;
-            }
-            if line.contains("}") && menu {
-                gconf.push_str(&line);
-                gconf.push_str("\n### END /etc/grub.d/41_custom ###");
-                break;
-            } else if menu {
-                gconf.push_str(&format!("\n{}",&line));
-            }
-        }
-    }
+    let mut source_cfg = String::new();
+    sfile.read_to_string(&mut source_cfg)?;
+    let gconf = extract_first_menuentry(&source_cfg)?;
 
-    // Remove old recovery
-    let gfile = File::open(&grub_cfg)?;
-    let reader = BufReader::new(gfile);
-    let mut ngrub_cfg = String::new();
-    let mut recovery_mode = false;
-    for line in reader.lines() {
-        let line = line?;
-        if line.contains("menuentry 'Recovery Snapshot'") {
-            // Old recovery entry found: skip its title line and body
-            recovery_mode = true;
-        } else if recovery_mode {
-            if line.contains("}") {
-                // Closing brace of the old recovery entry: stop skipping
-                break;
-            }
-            // Skip the old recovery entry body lines
-        } else {
-            ngrub_cfg.push_str(&format!("\n{}",&line));
-        }
-    }
-    atomic_write(Path::new(&grub_cfg), &ngrub_cfg)?;
-
-    // Remove END of 41_custom
+    // Remove old recovery entries before appending the current one.
     let mut contents = String::new();
-    let mut sfile = File::open(&grub_cfg)?;
-    sfile.read_to_string(&mut contents)?;
-    let modified_grub_contents = contents.replace("### END /etc/grub.d/41_custom ###", "");
-    atomic_write(Path::new(&grub_cfg), &modified_grub_contents)?;
+    File::open(&grub_cfg)?.read_to_string(&mut contents)?;
+    atomic_write(Path::new(&grub_cfg), &remove_recovery_entries(&contents))?;
 
     // Change recovery tmp
     let updated_line = if let Some(first_quote_index) = gconf.find('\'') {
@@ -276,50 +339,19 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
             // Get old grub configurations
             let grub_path = format!("{}/{}/grub.cfg", boot_location, grub);
             let src_file_path = format!("/.snapshots/rootfs/snapshot-{}/boot/{}/grub.cfg", source_dep,source_grub);
-            let sfile = File::open(&src_file_path)?;
-            let reader = BufReader::new(sfile);
-            let mut gconf = String::new();
-            let mut in_10_linux = false;
-            let mut menu = false;
-            for line in reader.lines() {
-                let line = line?;
-                if line.contains("BEGIN /etc/grub.d/10_linux") {
-                    in_10_linux = true;
-                } else if in_10_linux {
-                    if line.contains("menuentry") {
-                        menu = true;
-                    }
-                    if line.contains("}") && menu {
-                        gconf.push_str(&line);
-                        gconf.push_str("\n### END /etc/grub.d/41_custom ###");
-                        break;
-                    } else if menu {
-                        gconf.push_str(&format!("\n{}",&line));
-                    }
-                }
-            }
+            let mut sfile = File::open(&src_file_path)?;
+            let mut source_cfg = String::new();
+            sfile.read_to_string(&mut source_cfg)?;
+            let gconf = extract_first_menuentry(&source_cfg)?;
 
-            // Remove END of 41_custom
             let mut contents = String::new();
-            let mut sfile = File::open(&grub_path)?;
-            sfile.read_to_string(&mut contents)?;
-            let modified_grub_contents = contents.replace("### END /etc/grub.d/41_custom ###", "");
-            atomic_write(Path::new(&grub_path), &modified_grub_contents)?;
-
-            let mut cfg = String::new();
-            File::open(&grub_path)?.read_to_string(&mut cfg)?;
+            File::open(&grub_path)?.read_to_string(&mut contents)?;
+            let mut cfg = remove_recovery_entries(&contents);
             cfg.push_str(&format!("\n\n{}", &gconf));
             atomic_write(Path::new(&grub_path), &cfg)?;
 
             // Add recovery mode
             if Path::new(&format!("/.snapshots/rootfs/snapshot-{}", rec_tmp)).try_exists()? {
-                // Remove END of 41_custom
-                let mut contents = String::new();
-                let mut sfile = File::open(&grub_path)?;
-                sfile.read_to_string(&mut contents)?;
-                let modified_grub_contents = contents.replace("### END /etc/grub.d/41_custom ###", "");
-                atomic_write(Path::new(&grub_path), &modified_grub_contents)?;
-
                 let updated_line = if let Some(first_quote_index) = gconf.find('\'') {
                     if let Some(rel) = gconf[first_quote_index + 1..].find('\'') {
                         let second_quote_index = rel + first_quote_index + 1;
@@ -335,8 +367,9 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
                 let gconf = updated_line.replace(&format!("@.snapshots_linux/rootfs/snapshot-{}", source_dep),
                                                  &format!("@.snapshots_linux/rootfs/snapshot-{}", rec_tmp));
 
-                let mut cfg = String::new();
-                File::open(&grub_path)?.read_to_string(&mut cfg)?;
+                let mut contents = String::new();
+                File::open(&grub_path)?.read_to_string(&mut contents)?;
+                let mut cfg = remove_recovery_entries(&contents);
                 cfg.push_str(&format!("\n\n{}", &gconf));
                 atomic_write(Path::new(&grub_path), &cfg)?;
             } else {
