@@ -257,7 +257,7 @@ pub fn cli() -> Command {
         // Switch distros
         .subcommand(Command::new("efi-update")
                     .aliases(["efiup", "update-efi"])
-                    .about("Switch to another distribution"))
+                    .about("Interactively switch the EFI boot entry to another distribution"))
         // etc update
         .subcommand(Command::new("etc-update")
                     .alias("etc")
