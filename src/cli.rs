@@ -246,7 +246,7 @@ pub fn cli() -> Command {
         .subcommand(Command::new("edit-profile")
                     .alias("edit-prof")
                     .alias("profile")
-                    .about("Edit per-snapshot package profile (profile)")
+                    .about("Edit a snapshot's profile (packages, services, and install commands)")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
                          .alias("snap")
