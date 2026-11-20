@@ -7,7 +7,7 @@ use rustix::path::Arg;
 use std::fs::{metadata, OpenOptions, read_to_string};
 use std::io::{Error, ErrorKind, Write};
 use std::path::Path;
-use std::process::{Command, ExitStatus};
+use std::process::Command;
 
 // Noninteractive update
 pub fn auto_upgrade(snapshot: &str) -> Result<(), Error> {
@@ -255,26 +255,38 @@ pub fn lockpkg(snapshot:&str, profconf: &Ini) -> Result<(), Error> {
     Ok(())
 }
 
-// Get list of installed packages and exclude packages installed as dependencies
+fn parse_pkg_names(output: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(output)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+// Get list of user-installed packages, excluding dependency-only packages
 pub fn no_dep_pkg_list(snapshot: &str, chr: &str) -> Result<Vec<String>, Error> {
-    let excode = Command::new("sh").arg("-c")
-                                   .arg(format!("chroot /.snapshots/rootfs/snapshot-{}{} {}", chr,snapshot,dpkg_query))
-                                   .output()?;
+    let root = format!("/.snapshots/rootfs/snapshot-{}{}", chr, snapshot);
+    let excode = Command::new("chroot")
+                          .arg(root)
+                          .args(["dnf", "repoquery", "-C", "--userinstalled", "--qf=%{name}"])
+                          .output()?;
     if !excode.status.success() {
         return Err(Error::new(ErrorKind::Other,
                               format!("Failed to list packages: {}",
                                       String::from_utf8_lossy(&excode.stderr).trim())));
     }
-    let stdout = String::from_utf8_lossy(&excode.stdout).trim().to_string();
-    Ok(stdout.split('\n').map(|s| s.to_string()).collect())
+    Ok(parse_pkg_names(&excode.stdout))
 }
 
 // Get list of packages installed in a snapshot
 pub fn pkg_list(snapshot: &str, chr: &str) -> Result<Vec<String>, Error> {
     prepare(snapshot)?;
-    let output = Command::new("sh").arg("-c")
-                                   .arg(format!("chroot /.snapshots/rootfs/snapshot-{}{} {}", chr,snapshot,dpkg_query))
-                                   .output();
+    let root = format!("/.snapshots/rootfs/snapshot-{}{}", chr, snapshot);
+    let output = Command::new("chroot")
+                          .arg(root)
+                          .args(["dnf", "repoquery", "-C", "--installed", "--qf=%{name}"])
+                          .output();
     // Always tear down the chroot, even when the query itself failed.
     let cleanup = post_transactions(snapshot);
     let excode = output?;
@@ -284,8 +296,7 @@ pub fn pkg_list(snapshot: &str, chr: &str) -> Result<Vec<String>, Error> {
                               format!("Failed to list packages: {}",
                                       String::from_utf8_lossy(&excode.stderr).trim())));
     }
-    let stdout = String::from_utf8_lossy(&excode.stdout).trim().to_string();
-    Ok(stdout.split('\n').map(|s| s.to_string()).collect())
+    Ok(parse_pkg_names(&excode.stdout))
 }
 
 // DNF query
