@@ -79,7 +79,7 @@ pub fn cli() -> Command {
         // Chroot
         .subcommand(Command::new("chroot")
                     .aliases(["ch", "chr"])
-                    .about("Open a root shell inside a snapshot")
+                    .about("Open a root shell in a writable copy of a snapshot and save changes on exit")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
                          .alias("snap")
