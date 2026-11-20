@@ -1,7 +1,7 @@
 use clap::{Arg, ArgAction, Command};
 
 pub fn cli() -> Command {
-        // Recognize argument and call appropriate function
+        // Define the CLI commands and their arguments
         let matches = Command::new("dsnap")
                 .about("Any Snapshot Hierarchical OS")
                 .subcommand_required(true)
