@@ -166,7 +166,7 @@ fn main() {
                 }
             }
             // Branch
-            Some(("branch", branch_matches)) => {
+            Some(("add-branch" | "branch" | "bra", branch_matches)) => {
                 // Get snapshot value
                 let snapshot = if branch_matches.contains_id("SNAPSHOT") {
                     let snap = branch_matches.get_one::<i32>("SNAPSHOT").unwrap();
