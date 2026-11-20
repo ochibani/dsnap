@@ -572,10 +572,10 @@ pub fn cli() -> Command {
                          .required_unless_present_any(["PACKAGE", "PROFILE"])
                          .conflicts_with_all(["PACKAGE", "PROFILE"])
                          .help("profile(s) to be installed"),),)
-        // tmp (clear tmp)
+        // Clear temporary snapshots
         .subcommand(Command::new("tmp")
                     .alias("tmpclear")
-                    .about("Show dsnap tree"))
+                    .about("Clear temporary snapshots"))
         // Tree
         .subcommand(Command::new("tree")
                     .alias("t")
