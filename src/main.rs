@@ -1028,7 +1028,7 @@ fn main() {
                 }
             }
             // Tree sync
-            Some(("sync", sync_matches)) => {
+            Some(("tree-sync" | "sync" | "tsync", sync_matches)) => {
                 // Get treename value
                 let treename = if sync_matches.contains_id("TREENAME") {
                     let snap = sync_matches.get_one::<i32>("TREENAME").unwrap();
