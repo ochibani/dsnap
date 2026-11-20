@@ -1836,9 +1836,9 @@ pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir) -> Resul
         copy("/.snapshots/dsnap/fstree", format!("/.snapshots/rootfs/snapshot-chr{}/.snapshots/dsnap/fstree", snapshot))?;
 
         // Check if dsnap exists
-        if !Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/usr/sbin/dsnap", snapshot)).try_exists()? {
+        if !Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/usr/bin/dsnap", snapshot)).try_exists()? {
             return Err(Error::new(ErrorKind::NotFound,
-                                  "/usr/sbin/dsnap doesn't exist."));
+                                  "/usr/bin/dsnap doesn't exist."));
         }
 
         // Copy from chroot directory back to read only snapshot directory
@@ -2024,9 +2024,9 @@ pub fn import_base(path: &str, tmp_dir: &TempDir) -> Result<String, Error> {
         copy("/.snapshots/dsnap/fstree", "/.snapshots/rootfs/snapshot-chr0/.snapshots/dsnap/fstree")?;
 
         // Check if dsnap exists
-        if !Path::new("/.snapshots/rootfs/snapshot-chr0/usr/sbin/dsnap").try_exists()? {
+        if !Path::new("/.snapshots/rootfs/snapshot-chr0/usr/bin/dsnap").try_exists()? {
             return Err(Error::new(ErrorKind::NotFound,
-                                  "/usr/sbin/dsnap doesn't exist."));
+                                  "/usr/bin/dsnap doesn't exist."));
         }
 
         Ok(snapshot)
@@ -3228,7 +3228,7 @@ pub fn reset() -> Result<(), Error> {
         prepare("0")?;
         copy("/.snapshots/rootfs/snapshot-chr0/etc/rc.local", "/.snapshots/rootfs/snapshot-chr0/etc/rc.local.bak")?;
         let start = "#!/bin/sh";
-        let del_snap = format!("/usr/sbin/dsnap del -q -n -s {}", current_snapshot);
+        let del_snap = format!("/usr/bin/dsnap del -q -n -s {}", current_snapshot);
         let cp_rc = "cp /etc/rc.local.bak /etc/rc.local";
         let mut file = OpenOptions::new().truncate(true)
                                          .read(true)

@@ -52,7 +52,7 @@ use grub::update_boot;
 // /.snapshots/tmp                   : temporary directory
 // /etc/dsnap/dsnap.conf                 : configuration file for dsnap
 // /etc/dsnap/profile                  : snapshot profile
-// /usr/sbin/dsnap                     : dsnap binary file location
+// /usr/bin/dsnap                      : dsnap binary file location
 // /usr/share/dsnap                    : files that store current snapshot info
 // /use/share/dsnap/profiles           : default desktop environments profiles path
 // /use/share/dsnap/rec-tmp            : name of temporary directory used to boot recovery snapshot
