@@ -677,7 +677,7 @@ fn main() {
                 }
             }
             // Immutability enable
-            Some(("immen", immen_matches)) => {
+            Some(("immutable-enable" | "immen", immen_matches)) => {
                 // Get snapshot value
                 let snapshot = if immen_matches.contains_id("SNAPSHOT") {
                     let snap = immen_matches.get_one::<i32>("SNAPSHOT").unwrap();

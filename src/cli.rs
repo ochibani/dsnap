@@ -314,8 +314,8 @@ pub fn cli() -> Command {
                          .required(false)
                          .help("snapshot number"),),)
         // Immutability enable
-        .subcommand(Command::new("immen")
-                    .aliases(["enable-mutability", "enableimm", "enimm", "immenable", "mut"])
+        .subcommand(Command::new("immutable-enable")
+                    .aliases(["immen", "enableimm", "enimm", "immenable", "immutable"])
                     .about("Enable immutability of a snapshot")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
