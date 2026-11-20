@@ -350,10 +350,10 @@ pub fn cli() -> Command {
                          .num_args(1..)
                          .required(false)
                          .help("description for the snapshot"),),)
-        // Install command
+        // Install package(s) or profile(s) in a snapshot
         .subcommand(Command::new("install")
                     .alias("in")
-                    .about("Install package(s) inside a snapshot")
+                    .about("Install package(s) or profile(s) inside a snapshot")
                     .arg(Arg::new("live")
                          .long("live")
                          .short('l')
