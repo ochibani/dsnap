@@ -473,7 +473,7 @@ pub fn cli() -> Command {
                     .about("Deploy a clone of the previous deployment for the next boot"))
         // Chroot run
         .subcommand(Command::new("run")
-                    .about("Run command(s) inside another snapshot (chrooted)")
+                    .about("Run command(s) in a writable copy of a snapshot and save changes")
                     .arg_required_else_help(true)
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
@@ -489,7 +489,7 @@ pub fn cli() -> Command {
                          .num_args(1..)
                          .value_parser(clap::value_parser!(String))
                          .required(true)
-                         .help("command"),),)
+                         .help("command to run in the snapshot"),),)
         // Subvolumes list
         .subcommand(Command::new("sub")
                     .aliases(["subs", "subvol", "subvols", "subvolumes"])
