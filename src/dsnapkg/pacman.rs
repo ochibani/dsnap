@@ -864,9 +864,13 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
         &["pacman", "-Syy", "archlinux-keyring"]
     };
 
-    Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-chr{}", snapshot))
-                          .args(pacman_args)
-                          .status()?;
+    let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-chr{}", snapshot))
+                                       .args(pacman_args)
+                                       .status()?;
+    if !excode.success() {
+        return Err(Error::new(ErrorKind::Other,
+                              "Failed to refresh archlinux-keyring."));
+    }
     if !aur_check(snapshot)? {
         let pacman_args: &[&str] = if noconfirm {
             &["pacman", "--noconfirm", "-Syyu"]
@@ -908,9 +912,13 @@ pub fn upgrade_helper_live(tmp: &str, noconfirm: bool) -> Result<(), Error> {
         &["pacman", "-Syy", "archlinux-keyring"]
     };
 
-    Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-{}", tmp))
-                          .args(pacman_args)
-                          .status()?;
+    let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-{}", tmp))
+                                       .args(pacman_args)
+                                       .status()?;
+    if !excode.success() {
+        return Err(Error::new(ErrorKind::Other,
+                              "Failed to refresh archlinux-keyring for current/live snapshot."));
+    }
     if !aur_check(tmp)? {
         let pacman_args: &[&str] = if noconfirm {
             &["pacman", "--noconfirm", "-Syyu"]
