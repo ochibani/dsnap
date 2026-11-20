@@ -195,7 +195,8 @@ pub fn cli() -> Command {
                          .required(false)
                          .help("snapshot number"),),)
         // Description
-        .subcommand(Command::new("desc")
+        .subcommand(Command::new("description")
+                    .alias("desc")
                     .about("Set or replace the description of a snapshot")
                     .arg_required_else_help(true)
                     .arg(Arg::new("SNAPSHOT")

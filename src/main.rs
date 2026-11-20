@@ -405,7 +405,7 @@ fn main() {
                 }
             }
             // Description
-            Some(("desc", desc_matches)) => {
+            Some(("description" | "desc", desc_matches)) => {
                 // Get snapshot value
                 let snapshot = if desc_matches.contains_id("SNAPSHOT") {
                     let snap = desc_matches.get_one::<i32>("SNAPSHOT").unwrap();
