@@ -1210,7 +1210,7 @@ fn main() {
                 }
             }
             // Tree upgrade
-            Some(("tupgrade", tupgrade_matches)) => {
+            Some(("tree-upgrade" | "tupgrade" | "tup", tupgrade_matches)) => {
                 // Get treename value
                 let treename = if tupgrade_matches.contains_id("TREENAME") {
                     let snap = tupgrade_matches.get_one::<i32>("TREENAME").unwrap();
