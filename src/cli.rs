@@ -671,7 +671,7 @@ pub fn cli() -> Command {
                          .help("root snapshot number of the tree"),),)
         // Uninstall package(s) or profile(s) from a snapshot
         .subcommand(Command::new("uninstall")
-                    .aliases(["unin", "uninst", "unins", "un"])
+                    .aliases(["unin", "un"])
                     .about("Uninstall package(s) or profile(s) from a snapshot")
                     .arg(Arg::new("live")
                          .long("live")
