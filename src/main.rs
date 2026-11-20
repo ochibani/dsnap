@@ -1055,7 +1055,7 @@ fn main() {
                 }
             }
             // Tree install
-            Some(("tinstall", tinstall_matches)) => {
+            Some(("tree-install" | "tinstall" | "tree-in", tinstall_matches)) => {
                 // Get treename value
                 let treename = if tinstall_matches.contains_id("TREENAME") {
                     let snap = tinstall_matches.get_one::<i32>("TREENAME").unwrap();

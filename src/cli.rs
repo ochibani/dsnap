@@ -523,9 +523,13 @@ pub fn cli() -> Command {
         .subcommand(Command::new("subvolumes")
                     .aliases(["sub", "subvol"])
                     .about("List btrfs subvolumes for the booted system"))
+        // Tree
+        .subcommand(Command::new("tree")
+                    .alias("t")
+                    .about("Show dsnap tree"))
         // Tree install
-        .subcommand(Command::new("tinstall")
-                    .alias("tree-in")
+        .subcommand(Command::new("tree-install")
+                    .aliases(["tinstall", "tree-in"])
                     .about("Install package(s) or profile(s) throughout a snapshot tree")
                     .arg(Arg::new("noconfirm")
                          .long("noconfirm")
@@ -577,10 +581,6 @@ pub fn cli() -> Command {
                          .required_unless_present_any(["PACKAGE", "PROFILE"])
                          .conflicts_with_all(["PACKAGE", "PROFILE"])
                          .help("user profile(s) to be installed"),),)
-        // Tree
-        .subcommand(Command::new("tree")
-                    .alias("t")
-                    .about("Show dsnap tree"))
         // Tree run
         .subcommand(Command::new("tree-run")
                     .aliases(["trun"])
