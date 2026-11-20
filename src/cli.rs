@@ -493,7 +493,7 @@ pub fn cli() -> Command {
         // Subvolumes list
         .subcommand(Command::new("sub")
                     .aliases(["subs", "subvol", "subvols", "subvolumes"])
-                    .about("List subvolumes of active snapshot (currently booted)"))
+                    .about("List btrfs subvolumes for the booted system"))
         // Tree sync
         .subcommand(Command::new("sync")
                     .aliases(["tree-sync", "tsync"])
