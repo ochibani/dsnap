@@ -407,7 +407,7 @@ pub fn cli() -> Command {
         // Package list
         .subcommand(Command::new("list")
                     .alias("ls")
-                    .about("Get list of installed packages in a snapshot")
+                    .about("List installed packages in a snapshot")
                     .arg(Arg::new("exclude-dependency")
                          .long("exclude-dependency")
                          .short('e')
