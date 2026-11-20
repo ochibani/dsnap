@@ -198,8 +198,8 @@ fn main() {
                     Err(e) => eprintln!("{}", e),
                 }
             }
-            // Check update
-            Some(("check", _matches)) => {
+            // Check last update status
+            Some(("last-update" | "check", _matches)) => {
                 // Run check_update
                 let run = check_update();
                 match run {

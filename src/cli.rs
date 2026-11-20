@@ -72,9 +72,10 @@ pub fn cli() -> Command {
                          .num_args(1..)
                          .required(false)
                          .help("description for the snapshot"),),)
-        // Check update
-        .subcommand(Command::new("check")
-                    .about("Check update"))
+        // Check last update status
+        .subcommand(Command::new("last-update")
+                    .alias("check")
+                    .about("Check last update status"))
         // Chroot
         .subcommand(Command::new("chroot")
                     .aliases(["ch", "chr"])
