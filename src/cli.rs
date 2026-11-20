@@ -467,7 +467,7 @@ pub fn cli() -> Command {
                          .help("snapshot number"),),)
         // Reset
         .subcommand(Command::new("reset")
-                    .about("Deploy the base snapshot and remove all the other snapshots"))
+                    .about("Permanently delete all non-base snapshots, deploy snapshot 0, and reboot"))
         // Rollback
         .subcommand(Command::new("rollback")
                     .about("Revert the deployment to the last booted snapshot"))
