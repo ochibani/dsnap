@@ -32,11 +32,10 @@ pub fn auto_upgrade(snapshot: &str) -> Result<(), Error> {
                                        .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,apt_update))
                                        .status()?;
 
-        // Disable interactive post-install scripts
-        std::env::set_var("DEBIAN_FRONTEND", "noninteractive");
-
+        // Disable interactive post-install scripts for this command only
         let upgrade = Command::new("sh").arg("-c")
                                         .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,apt_upgrade))
+                                        .env("DEBIAN_FRONTEND", "noninteractive")
                                         .status()?;
         if update.success() && upgrade.success() {
             post_transactions(snapshot)?;
@@ -201,8 +200,6 @@ pub fn install_package_helper(snapshot:&str, pkgs: &Vec<String>, noconfirm: bool
 pub fn install_package_helper_chroot(snapshot:&str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
     let pkg_list = format!("{pkgs:?}");
     let install_args = if noconfirm {
-        // Disable interactive post-install scripts
-        std::env::set_var("DEBIAN_FRONTEND", "noninteractive");
         let options = "-o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\"";
         format!("apt-get install {} -y --no-install-recommends {}", pkg_list.replace(&['[', ']', ',', '\"'][..], ""), options)
     } else {
@@ -219,9 +216,13 @@ pub fn install_package_helper_chroot(snapshot:&str, pkgs: &Vec<String>, noconfir
     }
 
     // APT install
-    let apt_install = Command::new("sh").arg("-c")
-                                        .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,install_args))
-                                        .status()?;
+    let mut cmd = Command::new("sh");
+    cmd.arg("-c")
+       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,install_args));
+    if noconfirm {
+        cmd.env("DEBIAN_FRONTEND", "noninteractive");
+    }
+    let apt_install = cmd.status()?;
     if !apt_install.success() {
         return Err(Error::new(ErrorKind::Other,
                               "Failed to install package(s)."));
@@ -669,7 +670,6 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
 
     let upgrade_args = if noconfirm {
         // Avoid interactive conffile prompts during noninteractive upgrades
-        std::env::set_var("DEBIAN_FRONTEND", "noninteractive");
         "DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade"
     } else {
         "apt-get upgrade"
@@ -699,7 +699,6 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
 pub fn upgrade_helper_live(tmp: &str, noconfirm: bool) -> Result<(), Error> {
     let upgrade_args = if noconfirm {
         // Avoid interactive conffile prompts during noninteractive upgrades
-        std::env::set_var("DEBIAN_FRONTEND", "noninteractive");
         "DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade"
     } else {
         "apt-get upgrade"
