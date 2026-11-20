@@ -142,7 +142,7 @@ fn main() {
                 }
             }
             // Boot update command
-            Some(("boot", boot_matches)) => {
+            Some(("boot-update" | "boot" | "bootup", boot_matches)) => {
                 // Get snapshot value
                 let snapshot = if boot_matches.contains_id("SNAPSHOT") {
                     let snap = boot_matches.get_one::<i32>("SNAPSHOT").unwrap();

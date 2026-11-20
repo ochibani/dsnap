@@ -44,8 +44,8 @@ pub fn cli() -> Command {
                          .action(ArgAction::SetTrue)
                          .help("noconfirm flag"),),)
         // Boot update command
-        .subcommand(Command::new("boot")
-                    .alias("boot-update")
+        .subcommand(Command::new("boot-update")
+                    .aliases(["boot", "bootup"])
                     .about("Regenerate GRUB configuration for a snapshot")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
