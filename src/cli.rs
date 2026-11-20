@@ -718,7 +718,7 @@ pub fn cli() -> Command {
         // Unlock a snapshot
         .subcommand(Command::new("unlock")
                     .alias("ul")
-                    .about("Unlock a snapshot")
+                    .about("Remove a snapshot's chroot lock and discard uncommitted changes")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
                          .alias("snap")
