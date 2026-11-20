@@ -108,7 +108,7 @@ pub fn cli() -> Command {
         // Clone a branch
         .subcommand(Command::new("clone-branch")
                     .aliases(["cb", "cbranch"])
-                    .about("Copy snapshot under same parent branch (clone as a branch)")
+                    .about("Create a sibling snapshot under the same parent")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
                          .alias("snap")
