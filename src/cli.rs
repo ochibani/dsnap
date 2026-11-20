@@ -179,7 +179,7 @@ pub fn cli() -> Command {
         // Deploy
         .subcommand(Command::new("deploy")
                     .aliases(["d", "dep"])
-                    .about("Deploy a snapshot for next boot")
+                    .about("Make a snapshot the default boot target for the next boot")
                     .arg(Arg::new("secondary")
                          .long("secondary")
                          .alias("sec")
