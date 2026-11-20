@@ -60,14 +60,15 @@ use dsnapkg::pacman::*;
 
 // Check if directory mutable
 fn allow_dir_mut(mount_path: &str) -> bool {
-    let mount_str = format!("/{}", mount_path);
-    let path = Path::new(&mount_str);
-    let not_allowed = vec!["bin", "dev", "lib", "lib64", "proc", "sbin", "usr", "usr/bin", "usr/lib", "usr/lib64", "usr/sbin"];
-    if path.is_dir() && !not_allowed.contains(&mount_path.trim_end_matches("/")) && !mount_path.starts_with("/") {
-        return true;
-    } else {
+    let clean = mount_path.trim_end_matches('/');
+    if clean.is_empty() || clean.starts_with('/') {
         return false;
     }
+    let top = clean.split('/').next().unwrap_or("");
+    let not_allowed = ["bin", "boot", "dev", "etc", "home", "lib", "lib64",
+                       "media", "mnt", "proc", "root", "run", "sbin", "sys",
+                       "tmp", "usr", ".snapshots"];
+    Path::new(&format!("/{}", clean)).is_dir() && !not_allowed.contains(&top)
 }
 
 // dsnap chroot mounts
