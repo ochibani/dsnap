@@ -265,7 +265,7 @@ pub fn cli() -> Command {
         // Export snapshot
         .subcommand(Command::new("export")
                     .alias("exp")
-                    .about("Send the snapshot to export directory")
+                    .about("Export a snapshot as a compressed btrfs send stream")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
                          .alias("snap")
