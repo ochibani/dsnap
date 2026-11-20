@@ -566,9 +566,9 @@ pub fn cli() -> Command {
                          .conflicts_with_all(["PACKAGE", "PROFILE"])
                          .help("user profile(s) to be installed"),),)
         // Clear temporary snapshots
-        .subcommand(Command::new("tmp")
-                    .alias("tmpclear")
-                    .about("Clear temporary snapshots"))
+        .subcommand(Command::new("clean-tmp")
+                    .aliases(["tmp", "tmpclear", "clear-tmp"])
+                    .about("Clean unmounted chroot working snapshots"))
         // Tree
         .subcommand(Command::new("tree")
                     .alias("t")
