@@ -432,7 +432,7 @@ fn main() {
                 }
             }
             // Diff two snapshots
-            Some(("diff", diff_matches)) => {
+            Some(("difference" | "diff" | "dif", diff_matches)) => {
                 // Get snapshot one value
                 let snap1 = diff_matches.get_one::<i32>("SNAPSHOT-1").unwrap();
                 let snapshot1 = format!("{}", snap1);

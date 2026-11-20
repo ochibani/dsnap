@@ -214,8 +214,8 @@ pub fn cli() -> Command {
                          .required(true)
                          .help("description to be added"),),)
         // Diff two snapshots
-        .subcommand(Command::new("diff")
-                    .alias("dif")
+        .subcommand(Command::new("difference")
+                    .aliases(["diff", "dif"])
                     .about("Show package diff between snapshots")
                     .arg_required_else_help(true)
                     .arg(Arg::new("SNAPSHOT-1")
