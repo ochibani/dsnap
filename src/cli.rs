@@ -428,7 +428,7 @@ pub fn cli() -> Command {
         // New
         .subcommand(Command::new("new")
                     .alias("new-tree")
-                    .about("Create a new base snapshot")
+                    .about("Create a new top-level tree from the base snapshot")
                     .arg(Arg::new("DESCRIPTION")
                          .long("description")
                          .alias("desc")
