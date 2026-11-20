@@ -3,7 +3,7 @@ use clap::{Arg, ArgAction, Command};
 pub fn cli() -> Command {
         // Define the CLI commands and their arguments
         let matches = Command::new("dsnap")
-                .about("Any Snapshot Hierarchical OS")
+                .about("Manage immutable tree-shaped btrfs snapshots")
                 .subcommand_required(true)
                 .arg_required_else_help(true)
         // Auto upgrade

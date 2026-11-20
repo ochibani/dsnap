@@ -20,7 +20,7 @@ Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, btrfs-progs, curl, efibootmgr
 Recommends: python3-pip
 Suggests: systemd
-Description: Immutable tree-shaped meta-distribution using snapshots
+Description: Manage immutable tree-shaped btrfs snapshots
  dsnap manages tree-shaped btrfs snapshot layouts, letting a system be
  deployed, restored and exported as immutable snapshot trees.
  .

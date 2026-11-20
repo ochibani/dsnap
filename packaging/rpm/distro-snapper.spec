@@ -1,7 +1,7 @@
 Name:           distro-snapper
 Version:        0.1.0
 Release:        1%{?dist}
-Summary:        Immutable tree-shaped meta-distribution using snapshots
+Summary:        Manage immutable tree-shaped btrfs snapshots
 
 License:        AGPL-3.0-only
 URL:            https://github.com/ochibani/dsnap
