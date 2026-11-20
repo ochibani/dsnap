@@ -698,9 +698,9 @@ pub fn cli() -> Command {
                          .required_unless_present_any(["PACKAGE", "PROFILE"])
                          .conflicts_with_all(["PACKAGE", "PROFILE"])
                          .help("profile(s) to be uninstalled"),),)
-        // Service control
+        // Manage systemd units and keep the profile in sync
         .subcommand(Command::new("service")
-                    .about("Enable or disable systemd unit(s) in a snapshot")
+                    .about("Enable or disable systemd unit(s) in a snapshot and update its profile")
                     .arg(Arg::new("ENABLE")
                          .long("enable")
                          .short('e')
