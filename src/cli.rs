@@ -46,7 +46,7 @@ pub fn cli() -> Command {
         // Boot update command
         .subcommand(Command::new("boot")
                     .alias("boot-update")
-                    .about("Update boot of a snapshot")
+                    .about("Regenerate GRUB configuration for a snapshot")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
                          .alias("snap")
