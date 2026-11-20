@@ -470,7 +470,7 @@ pub fn cli() -> Command {
                     .about("Permanently delete all non-base snapshots, deploy snapshot 0, and reboot"))
         // Rollback
         .subcommand(Command::new("rollback")
-                    .about("Revert the deployment to the last booted snapshot"))
+                    .about("Deploy a clone of the previous deployment for the next boot"))
         // Chroot run
         .subcommand(Command::new("run")
                     .about("Run command(s) inside another snapshot (chrooted)")
