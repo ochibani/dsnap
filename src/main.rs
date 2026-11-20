@@ -341,7 +341,7 @@ fn main() {
                 }
             }
             // Delete
-            Some(("del", del_matches)) => {
+            Some(("delete" | "del" | "rm" | "remove", del_matches)) => {
                 // Get snapshot value
                 let snapshots: Vec<_> = del_matches.get_many::<i32>("SNAPSHOT").unwrap().map(|s| format!("{}", s)).collect();
 

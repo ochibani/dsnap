@@ -152,8 +152,8 @@ pub fn cli() -> Command {
                     .external_subcommand_value_parser(clap::value_parser!(i32))
                     .about("Show current snapshot number"))
         // Delete
-        .subcommand(Command::new("del")
-                    .aliases(["delete", "rem", "remove", "rm", "rm-snapshot"])
+        .subcommand(Command::new("delete")
+                    .aliases(["del", "rm", "remove"])
                     .about("Delete snapshot(s) and all descendant snapshots recursively")
                     .arg_required_else_help(true)
                     .arg(Arg::new("quiet")
