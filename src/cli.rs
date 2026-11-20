@@ -303,8 +303,8 @@ pub fn cli() -> Command {
                          .required(false)
                          .help("snapshot number"),),)
         // Immutability disable
-        .subcommand(Command::new("immdis")
-                    .aliases(["disable-mutability", "disableimm", "disimm", "dmut", "immdisable"])
+        .subcommand(Command::new("immutable-disable")
+                    .aliases(["immdis", "disable-mutability", "disableimm", "disimm", "dmut", "immdisable"])
                     .about("Disable immutability of a snapshot")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")

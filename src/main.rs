@@ -653,7 +653,7 @@ fn main() {
                 }
             }
             // Immutability disable
-            Some(("immdis", immdis_matches)) => {
+            Some(("immutable-disable" | "immdis", immdis_matches)) => {
                 // Get snapshot value
                 let snapshot = if immdis_matches.contains_id("SNAPSHOT") {
                     let snap = immdis_matches.get_one::<i32>("SNAPSHOT").unwrap();
