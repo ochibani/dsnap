@@ -457,7 +457,7 @@ pub fn cli() -> Command {
         // Refresh
         .subcommand(Command::new("refresh")
                     .alias("ref")
-                    .about("Refresh package manager db of a snapshot")
+                    .about("Refresh package repository metadata in a snapshot")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
                          .alias("snap")
