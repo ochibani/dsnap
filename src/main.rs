@@ -361,7 +361,7 @@ fn main() -> ExitCode {
                 // Get snapshot value
                 let snapshots: Vec<_> = del_matches.get_many::<i32>("SNAPSHOT").unwrap().map(|s| format!("{}", s)).collect();
 
-                // Optional values
+                // Delete options
                 let quiet = del_matches.get_flag("quiet");
                 let nuke = del_matches.get_flag("nuke");
 
@@ -820,7 +820,7 @@ fn main() -> ExitCode {
                     user_profile
                 };
 
-                // Optional values
+                // Install options
                 let live = install_matches.get_flag("live");
                 let noconfirm = install_matches.get_flag("noconfirm");
                 let force = install_matches.get_flag("force");
@@ -1060,7 +1060,7 @@ fn main() -> ExitCode {
                     }
                 };
 
-                // Optional values
+                // Tree sync options
                 let live = sync_matches.get_flag("live");
 
                 // Run tree_sync
@@ -1114,7 +1114,7 @@ fn main() -> ExitCode {
                     user_profiles
                 };
 
-                // Optional values
+                // Tree install options
                 let noconfirm = tinstall_matches.get_flag("noconfirm");
                 let force = tinstall_matches.get_flag("force");
                 let secondary = tinstall_matches.get_flag("secondary");
@@ -1293,7 +1293,7 @@ fn main() -> ExitCode {
                     user_profile
                 };
 
-                // Optional values
+                // Uninstall options
                 let live = uninstall_matches.get_flag("live");
                 let noconfirm = uninstall_matches.get_flag("noconfirm");
 
@@ -1368,7 +1368,7 @@ fn main() -> ExitCode {
                     }
                 };
 
-                // Optional values
+                // Upgrade options
                 let noconfirm = upgrade_matches.get_flag("noconfirm");
                 let live = upgrade_matches.get_flag("live");
 
