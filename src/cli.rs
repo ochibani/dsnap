@@ -90,7 +90,7 @@ pub fn cli() -> Command {
         // Clone
         .subcommand(Command::new("clone")
                     .alias("cl")
-                    .about("Create a copy of a snapshot (as top-level tree node)")
+                    .about("Create a new top-level tree from a copy of a snapshot")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
                          .alias("snap")
