@@ -1,5 +1,5 @@
 # Maintainer: Chibani <11yzyv86j@relay.firefox.com>
-pkgname="distro-snapper"
+pkgname="distro-snapper-git"
 pkgver=r470.9953135
 pkgrel=1
 pkgdesc="An immutable tree-shaped meta-distribution using snapshots."
@@ -9,8 +9,8 @@ license=("AGPL-3.0-only")
 depends=("btrfs-progs" "coreutils" "curl" "efibootmgr" "pacman" "paru" "python-anytree" "sed" "rc-local")
 makedepends=("cargo" "git")
 optdepends=("grub" "systemd")
-provides=("dsnap")
-conflicts=("dsnap")
+provides=("distro-snapper")
+conflicts=("distro-snapper")
 source=("$pkgname::git+https://github.com/ochibani/dsnap.git")
 sha512sums=('SKIP')
 

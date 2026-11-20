@@ -199,7 +199,7 @@ pub fn dsnap_umounts(i: &str, chr: &str) -> nix::Result<()> {
 
 //dsnap version
 pub fn dsnap_version() -> Result<String, Error> {
-    let pkg = "dsnap";
+    let pkg = "distro-snapper";
     let version = pkg_query(pkg)?;
     Ok(version)
 }

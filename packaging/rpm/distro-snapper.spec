@@ -61,4 +61,4 @@ install -Dm644 target/release/build/dsnap-*/out/dsnap.fish %{buildroot}%{_datadi
 
 %changelog
 * Sun Nov 15 2026 Chibani <11yzyv86j@relay.firefox.com> - 0.1.0-1
-- Initial package (renamed from ash to dsnap)
+- Initial package

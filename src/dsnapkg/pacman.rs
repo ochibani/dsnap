@@ -122,7 +122,7 @@ pub fn bootstrap(snapshot: &str) -> Result<(), Error> {
 
     let paru_install = Command::new("sh")
         .arg("-c")
-        .arg(format!("su aur -c 'paru --dbpath {} -r /.snapshots/rootfs/snapshot-chr{} -Sy --noconfirm --overwrite \"*\" paru'", //TODO replace paru with dsnap
+        .arg(format!("su aur -c 'paru --dbpath {} -r /.snapshots/rootfs/snapshot-chr{} -Sy --noconfirm --overwrite \"*\" distro-snapper-git'", //TODO replace distro-snapper-git with distro-snapper
                      tmp_db.path().to_string_lossy(),snapshot)).status()?;
     if !paru_install.success() {
         return Err(Error::new(ErrorKind::Other,
