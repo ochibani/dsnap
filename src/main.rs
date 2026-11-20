@@ -1181,7 +1181,7 @@ fn main() {
                 }
             }
             // Tree run
-            Some(("trun", trun_matches)) => {
+            Some(("tree-run" | "trun", trun_matches)) => {
                 // Get snapshot value
                 let treename = if trun_matches.contains_id("TREENAME") {
                     let snap = trun_matches.get_one::<i32>("TREENAME").unwrap();
