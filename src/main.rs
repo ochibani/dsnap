@@ -142,7 +142,7 @@ fn main() {
                 }
             }
             // Boot update command
-            Some(("boot-update" | "boot" | "bootup", boot_matches)) => {
+            Some(("boot-update", boot_matches)) => {
                 // Get snapshot value
                 let snapshot = if boot_matches.contains_id("SNAPSHOT") {
                     let snap = boot_matches.get_one::<i32>("SNAPSHOT").unwrap();
@@ -166,7 +166,7 @@ fn main() {
                 }
             }
             // Branch
-            Some(("add-branch" | "branch" | "bra", branch_matches)) => {
+            Some(("add-branch", branch_matches)) => {
                 // Get snapshot value
                 let snapshot = if branch_matches.contains_id("SNAPSHOT") {
                     let snap = branch_matches.get_one::<i32>("SNAPSHOT").unwrap();
@@ -199,7 +199,7 @@ fn main() {
                 }
             }
             // Check last update status
-            Some(("last-update" | "check", _matches)) => {
+            Some(("last-update", _matches)) => {
                 // Run check_update
                 let run = check_update();
                 match run {
@@ -341,7 +341,7 @@ fn main() {
                 }
             }
             // Delete
-            Some(("delete" | "del" | "rm" | "remove", del_matches)) => {
+            Some(("delete", del_matches)) => {
                 // Get snapshot value
                 let snapshots: Vec<_> = del_matches.get_many::<i32>("SNAPSHOT").unwrap().map(|s| format!("{}", s)).collect();
 
@@ -405,7 +405,7 @@ fn main() {
                 }
             }
             // Description
-            Some(("description" | "desc", desc_matches)) => {
+            Some(("description", desc_matches)) => {
                 // Get snapshot value
                 let snapshot = if desc_matches.contains_id("SNAPSHOT") {
                     let snap = desc_matches.get_one::<i32>("SNAPSHOT").unwrap();
@@ -432,7 +432,7 @@ fn main() {
                 }
             }
             // Diff two snapshots
-            Some(("difference" | "diff" | "dif", diff_matches)) => {
+            Some(("difference", diff_matches)) => {
                 // Get snapshot one value
                 let snap1 = diff_matches.get_one::<i32>("SNAPSHOT-1").unwrap();
                 let snapshot1 = format!("{}", snap1);
@@ -653,7 +653,7 @@ fn main() {
                 }
             }
             // Immutability disable
-            Some(("immutable-disable" | "immdis", immdis_matches)) => {
+            Some(("immutable-disable", immdis_matches)) => {
                 // Get snapshot value
                 let snapshot = if immdis_matches.contains_id("SNAPSHOT") {
                     let snap = immdis_matches.get_one::<i32>("SNAPSHOT").unwrap();
@@ -677,7 +677,7 @@ fn main() {
                 }
             }
             // Immutability enable
-            Some(("immutable-enable" | "immen", immen_matches)) => {
+            Some(("immutable-enable", immen_matches)) => {
                 // Get snapshot value
                 let snapshot = if immen_matches.contains_id("SNAPSHOT") {
                     let snap = immen_matches.get_one::<i32>("SNAPSHOT").unwrap();
@@ -883,7 +883,7 @@ fn main() {
                 }
             }
             // New
-            Some(("new-tree" | "new", new_matches)) => {
+            Some(("new-tree", new_matches)) => {
                 // Get desc value
                 let desc = if new_matches.contains_id("DESCRIPTION") {
                     let desc = new_matches.get_one::<String>("DESCRIPTION").map(|s| s.as_str()).unwrap().to_string();
@@ -1021,14 +1021,14 @@ fn main() {
                 }
             }
             // Subvolumes list
-            Some(("subvolumes" | "sub" | "subvol", _matches)) => {
+            Some(("subvolumes", _matches)) => {
                 // Run list_subvolumes
                 if let Err(e) = list_subvolumes() {
                     eprintln!("{}", e);
                 }
             }
             // Tree sync
-            Some(("tree-sync" | "sync" | "tsync", sync_matches)) => {
+            Some(("tree-sync", sync_matches)) => {
                 // Get treename value
                 let treename = if sync_matches.contains_id("TREENAME") {
                     let snap = sync_matches.get_one::<i32>("TREENAME").unwrap();
@@ -1055,7 +1055,7 @@ fn main() {
                 }
             }
             // Tree install
-            Some(("tree-install" | "tinstall" | "tree-in", tinstall_matches)) => {
+            Some(("tree-install", tinstall_matches)) => {
                 // Get treename value
                 let treename = if tinstall_matches.contains_id("TREENAME") {
                     let snap = tinstall_matches.get_one::<i32>("TREENAME").unwrap();
@@ -1111,7 +1111,7 @@ fn main() {
                 }
             }
             // tmp (clear tmp)
-            Some(("clean-tmp" | "tmp" | "cleantmp", _matches)) => {
+            Some(("clean-tmp", _matches)) => {
                 // Run temp_snapshots_clear
                 let run = temp_snapshots_clear();
                 match run {
@@ -1127,7 +1127,7 @@ fn main() {
                 }
             }
             // Tree remove
-            Some(("tree-uninstall" | "tremove" | "tree-rm" | "tuninstall", tremove_matches)) => {
+            Some(("tree-uninstall", tremove_matches)) => {
                 // Get treename value
                 let treename = if tremove_matches.contains_id("TREENAME") {
                     let snap = tremove_matches.get_one::<i32>("TREENAME").unwrap();
@@ -1181,7 +1181,7 @@ fn main() {
                 }
             }
             // Tree run
-            Some(("tree-run" | "trun", trun_matches)) => {
+            Some(("tree-run", trun_matches)) => {
                 // Get snapshot value
                 let treename = if trun_matches.contains_id("TREENAME") {
                     let snap = trun_matches.get_one::<i32>("TREENAME").unwrap();
@@ -1210,7 +1210,7 @@ fn main() {
                 }
             }
             // Tree upgrade
-            Some(("tree-upgrade" | "tupgrade" | "tup", tupgrade_matches)) => {
+            Some(("tree-upgrade", tupgrade_matches)) => {
                 // Get treename value
                 let treename = if tupgrade_matches.contains_id("TREENAME") {
                     let snap = tupgrade_matches.get_one::<i32>("TREENAME").unwrap();
