@@ -1021,7 +1021,7 @@ fn main() {
                 }
             }
             // Subvolumes list
-            Some(("sub", _matches)) => {
+            Some(("subvolumes" | "sub" | "subvol", _matches)) => {
                 // Run list_subvolumes
                 if let Err(e) = list_subvolumes() {
                     eprintln!("{}", e);

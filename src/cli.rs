@@ -520,8 +520,8 @@ pub fn cli() -> Command {
                          .required(false)
                          .help("snapshot number"),),)
         // Subvolumes list
-        .subcommand(Command::new("sub")
-                    .aliases(["subs", "subvol", "subvols", "subvolumes"])
+        .subcommand(Command::new("subvolumes")
+                    .aliases(["sub", "subvol"])
                     .about("List btrfs subvolumes for the booted system"))
         // Tree sync
         .subcommand(Command::new("sync")
