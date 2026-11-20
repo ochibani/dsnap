@@ -9,6 +9,22 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
+use std::process::ExitCode;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static FAILED: AtomicBool = AtomicBool::new(false);
+
+macro_rules! fail {
+    ($($arg:tt)*) => {{
+        ::std::eprintln!($($arg)*);
+        FAILED.store(true, Ordering::SeqCst);
+    }};
+}
+
+fn failure() -> ExitCode {
+    FAILED.store(true, Ordering::SeqCst);
+    ExitCode::FAILURE
+}
 
 // Select Bootloader
 #[cfg(feature = "grub")]
@@ -43,13 +59,13 @@ use grub::update_boot;
 // /use/share/dsnap/snap               : snapshot number
 // /var/lib/dsnap(/fstree)             : dsnap files, stores fstree, symlink to /.snapshots/dsnap/fstree
 
-fn main() {
+fn main() -> ExitCode {
     if !Uid::effective().is_root() {
-        eprintln!("sudo/doas is required to run dsnap!");
+        fail!("sudo/doas is required to run dsnap!");
     } else {
         match chroot_check() {
-            Ok(true) => eprintln!("Please don't use dsnap inside a chroot!"),
-            Err(e) => eprintln!("Failed to determine chroot state: {}", e),
+            Ok(true) => fail!("Please don't use dsnap inside a chroot!"),
+            Err(e) => fail!("Failed to determine chroot state: {}", e),
             Ok(false) => {
         // Call cli matches
         let matches = cli().get_matches();
@@ -66,8 +82,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -76,7 +92,7 @@ fn main() {
                 let run = noninteractive_update(&snapshot);
                 match run {
                     Ok(_) => println!("The auto-upgrade has been completed successfully."),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Base import
@@ -88,8 +104,8 @@ fn main() {
                 let tmp_dir = match tempfile::TempDir::new_in("/.snapshots/tmp") {
                     Ok(dir) => dir,
                     Err(e) => {
-                        eprintln!("Failed to create temporary directory: {}", e);
-                        return;
+                        fail!("Failed to create temporary directory: {}", e);
+                        return failure();
                     }
                 };
 
@@ -103,21 +119,21 @@ fn main() {
                             } else {
                                 // Clean chroot mount directories
                                 if let Err(e) = chr_delete("0") {
-                                    eprintln!("Failed to clean chroot after base import failure: {}", e);
+                                    fail!("Failed to clean chroot after base import failure: {}", e);
                                 }
-                                eprintln!("Failed to import new base snapshot.")
+                                fail!("Failed to import new base snapshot.")
                             }
                         },
                         Err(e) => {
                             // Clean chroot mount directories
                             if let Err(clean_err) = chr_delete("0") {
-                                eprintln!("Failed to clean chroot after base import failure: {}", clean_err);
+                                fail!("Failed to clean chroot after base import failure: {}", clean_err);
                             }
-                            eprintln!("{}", e);
+                            fail!("{}", e);
                         },
                     }
                 } else {
-                    eprintln!("base-import subcommand is not supported.");
+                    fail!("base-import subcommand is not supported.");
                 }
             }
             // Base rebuild
@@ -126,7 +142,7 @@ fn main() {
                 let run = rebuild_base();
                 match run {
                     Ok(_) => println!("Base snapshot was rebuilt successfully."),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Base update
@@ -138,7 +154,7 @@ fn main() {
                 let run = upgrade("0", true, noconfirm);
                 match run {
                     Ok(_) => {},
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Boot update command
@@ -152,8 +168,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -162,7 +178,7 @@ fn main() {
                 let run = update_boot(&snapshot, false);
                 match run {
                     Ok(_) => println!("Bootloader updated successfully."),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Branch
@@ -176,8 +192,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -195,7 +211,7 @@ fn main() {
                 let run = branch_create(&snapshot, &desc);
                 match run {
                     Ok(snapshot_num) => println!("Branch {} added under snapshot {}.", snapshot_num,snapshot),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Check last update status
@@ -204,7 +220,7 @@ fn main() {
                 let run = check_update();
                 match run {
                     Ok(_) => (),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Chroot
@@ -218,8 +234,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -231,7 +247,7 @@ fn main() {
                 let run = chroot(&snapshot, cmd);
                 match run {
                     Ok(_) => (),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Clone
@@ -245,8 +261,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -264,7 +280,7 @@ fn main() {
                 let run = clone_as_tree(&snapshot, &desc);
                 match run {
                     Ok(snapshot_num) => println!("Tree {} cloned from {}.", snapshot_num,snapshot),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Clone a branch
@@ -278,8 +294,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -288,7 +304,7 @@ fn main() {
                 let run = clone_branch(&snapshot);
                 match run {
                     Ok(snapshot_num) => println!("Branch {} added to parent of {}.", snapshot_num,snapshot),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Clone recursively
@@ -302,8 +318,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -312,7 +328,7 @@ fn main() {
                 let run = clone_recursive(&snapshot);
                 match run {
                     Ok(_) => println!("Snapshot {} was cloned recursively.", snapshot),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Clone under a branch
@@ -329,7 +345,7 @@ fn main() {
                 let run = clone_under(&snapshot, &branch);
                 match run {
                     Ok(snapshot_num) => println!("Branch {} added to parent of {}.", snapshot_num,snapshot),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Current snapshot
@@ -337,7 +353,7 @@ fn main() {
                 // Run get_current_snapshot
                 match get_current_snapshot() {
                     Ok(snap) => println!("{}", snap),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Delete
@@ -353,7 +369,7 @@ fn main() {
                 let run = delete_node(&snapshots, quiet, nuke);
                 match run {
                     Ok(_) => println!("Snapshot(s) {:?} removed.", snapshots),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Deploy
@@ -367,8 +383,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -390,18 +406,18 @@ fn main() {
                             Ok(mut deploy_tmp) => {
                                 let tmp = format!("{}\n{}", source_dep,target_dep);
                                 if let Err(e) = deploy_tmp.write_all(tmp.as_bytes()) {
-                                    eprintln!("Failed to record deployed snapshot: {}", e);
-                                    return;
+                                    fail!("Failed to record deployed snapshot: {}", e);
+                                    return failure();
                                 }
                                 println!("Snapshot {} deployed to '/'.", snapshot);
                             }
                             Err(e) => {
-                                eprintln!("Failed to open deployment state file: {}", e);
-                                return;
+                                fail!("Failed to open deployment state file: {}", e);
+                                return failure();
                             }
                         }
                     },
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Description
@@ -415,8 +431,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -428,7 +444,7 @@ fn main() {
                 let run = write_desc(&snapshot, &desc, true);
                 match run {
                     Ok(_) => (),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Diff two snapshots
@@ -444,7 +460,7 @@ fn main() {
                 // Run diff
                 match diff(&snapshot1, &snapshot2) {
                     Ok(_) => (),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Edit per-snapshot dsnap configuration
@@ -458,8 +474,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -468,7 +484,7 @@ fn main() {
                 let run = snapshot_config_edit(&snapshot);
                 match run {
                     Ok(_) => (),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Edit snapshot profile
@@ -482,8 +498,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -496,7 +512,7 @@ fn main() {
                     },
                     Err(e) => {
                         let _ = chr_delete(&snapshot);
-                        eprintln!("{}", e);
+                        fail!("{}", e);
                     },
                 }
             }
@@ -507,10 +523,10 @@ fn main() {
                     let run = efi_boot_order();
                     match run {
                         Ok(_) => println!("EFI boot order has been updated."),
-                        Err(e) => eprintln!("{}", e),
+                        Err(e) => fail!("{}", e),
                     }
                 } else {
-                   eprintln!("efi-update command is not supported.");
+                   fail!("efi-update command is not supported.");
                 }
             }
             // etc update
@@ -519,7 +535,7 @@ fn main() {
                 let run = update_etc();
                 match run {
                     Ok(_) => println!("etc has been successfully updated."),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Export snapshot
@@ -533,8 +549,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -555,12 +571,12 @@ fn main() {
                                                .status() {
                         Ok(status) if status.success() => {}
                         Ok(status) => {
-                            eprintln!("Failed to create export directory (exit status: {}).", status);
-                            return;
+                            fail!("Failed to create export directory (exit status: {}).", status);
+                            return failure();
                         }
                         Err(e) => {
-                            eprintln!("Failed to create export directory: {}", e);
-                            return;
+                            fail!("Failed to create export directory: {}", e);
+                            return failure();
                         }
                     }
                 }
@@ -569,7 +585,7 @@ fn main() {
                 let run = export(&snapshot, &dest);
                 match run {
                     Ok(_) => (),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Fix db commands
@@ -593,7 +609,7 @@ fn main() {
                                 match get_current_snapshot() {
                                     Ok(snap) => snap,
                                     Err(e) => {
-                                        eprintln!("{}", e);
+                                        fail!("{}", e);
                                         String::new()
                                     }
                                 }
@@ -603,7 +619,7 @@ fn main() {
                             if post_transactions(&snapshot).is_ok() {
                                 println!("Snapshot {}'s package manager database fixed successfully.", snapshot);
                             } else {
-                                eprintln!("Fixing package manager database failed.");
+                                fail!("Fixing package manager database failed.");
                             }
                         },
                         Err(e) => {
@@ -611,7 +627,7 @@ fn main() {
                                 match get_current_snapshot() {
                                     Ok(snap) => snap,
                                     Err(e) => {
-                                        eprintln!("{}", e);
+                                        fail!("{}", e);
                                         String::new()
                                     }
                                 }
@@ -619,13 +635,13 @@ fn main() {
                                 snapshot.clone()
                             };
                             if let Err(clean_err) = chr_delete(&snapshot) {
-                                eprintln!("Failed to clean chroot after fixdb failure: {}", clean_err);
+                                fail!("Failed to clean chroot after fixdb failure: {}", clean_err);
                             }
-                            eprintln!("{}", e);
+                            fail!("{}", e);
                         },
                     }
                 } else {
-                    eprintln!("fixdb subcommand is not supported.");
+                    fail!("fixdb subcommand is not supported.");
                 }
             }
             // Hollow a node
@@ -639,8 +655,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -649,7 +665,7 @@ fn main() {
                 let run = hollow(&snapshot);
                 match run {
                     Ok(_) => println!("Snapshot {} hollow operation succeeded. Please reboot!", snapshot),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Immutability disable
@@ -663,8 +679,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -673,7 +689,7 @@ fn main() {
                 let run = immutability_disable(&snapshot);
                 match run {
                     Ok(_) => println!("Snapshot {} successfully made mutable.", snapshot),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Immutability enable
@@ -687,8 +703,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -697,7 +713,7 @@ fn main() {
                 let run = immutability_enable(&snapshot);
                 match run {
                     Ok(_) => println!("Snapshot {} successfully made immutable.", snapshot),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Import snapshot
@@ -706,8 +722,8 @@ fn main() {
                 let snapshot = match find_new() {
                     Ok(snap) => snap,
                     Err(e) => {
-                        eprintln!("Failed to determine next snapshot number: {}", e);
-                        return;
+                        fail!("Failed to determine next snapshot number: {}", e);
+                        return failure();
                     }
                 };
 
@@ -727,8 +743,8 @@ fn main() {
                 let tmp_dir = match tempfile::TempDir::new_in("/.snapshots/tmp") {
                     Ok(dir) => dir,
                     Err(e) => {
-                        eprintln!("Failed to create temporary directory: {}", e);
-                        return;
+                        fail!("Failed to create temporary directory: {}", e);
+                        return failure();
                     }
                 };
 
@@ -746,18 +762,18 @@ fn main() {
                             if Path::new(&received).try_exists().unwrap_or(false) {
                                 #[cfg(feature = "btrfs")]
                                 if let Err(clean_err) = btrfs::delete_subvolume(&received) {
-                                    eprintln!("Failed to clean temporary received snapshot: {}", clean_err);
+                                    fail!("Failed to clean temporary received snapshot: {}", clean_err);
                                 }
                             }
                             // Clean chroot mount directories
                             if let Err(clean_err) = chr_delete(&format!("{}", snapshot)) {
-                                eprintln!("Failed to clean chroot after import failure: {}", clean_err);
+                                fail!("Failed to clean chroot after import failure: {}", clean_err);
                             }
-                            eprintln!("{}", e);
+                            fail!("{}", e);
                         },
                     }
                 } else {
-                    eprintln!("import subcommand is not supported.");
+                    fail!("import subcommand is not supported.");
                 }
             }
             // Install command
@@ -771,8 +787,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -814,7 +830,7 @@ fn main() {
                 let run = install_triage(&snapshot, live, pkgs, &profile, force, &user_profile, noconfirm, secondary);
                 match run {
                     Ok(_) => (),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Package list
@@ -828,8 +844,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -843,20 +859,20 @@ fn main() {
                 // Make sure snapshot exists
                 match Path::new(&format!("/.snapshots/rootfs/snapshot-{}", snapshot)).try_exists() {
                     Ok(false) => {
-                        eprintln!("Cannot list packages as snapshot {} doesn't exist.", snapshot);
+                        fail!("Cannot list packages as snapshot {} doesn't exist.", snapshot);
                     }
                     Err(e) => {
-                        eprintln!("Failed to check snapshot {}: {}", snapshot, e);
+                        fail!("Failed to check snapshot {}: {}", snapshot, e);
                     }
                     Ok(true) => {
                         match Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot)).try_exists() {
                             Ok(true) => {
                                 // Make sure snapshot is not in use by another dsnap process
-                                eprintln!("Snapshot {} appears to be in use. If you're certain it's not in use, clear lock with 'dsnap unlock -s {}'.",
+                                fail!("Snapshot {} appears to be in use. If you're certain it's not in use, clear lock with 'dsnap unlock -s {}'.",
                                           snapshot,snapshot);
                             }
                             Err(e) => {
-                                eprintln!("Failed to check snapshot {} lock state: {}", snapshot, e);
+                                fail!("Failed to check snapshot {} lock state: {}", snapshot, e);
                             }
                             Ok(false) => {
                                 // Run list
@@ -866,7 +882,7 @@ fn main() {
                                             println!("{}", pkg);
                                         }
                                     }
-                                    Err(e) => eprintln!("{}", e),
+                                    Err(e) => fail!("{}", e),
                                 }
                             }
                         }
@@ -879,7 +895,7 @@ fn main() {
                 let run = live_unlock();
                 match run {
                     Ok(_) => (),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // New
@@ -897,7 +913,7 @@ fn main() {
                 let run = snapshot_base_new(&desc);
                 match run {
                     Ok(snap_num) => println!("New tree {} created.", snap_num),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Rebuild
@@ -911,8 +927,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -930,8 +946,8 @@ fn main() {
                 let snap_num = match find_new() {
                     Ok(n) => n,
                     Err(e) => {
-                        eprintln!("Failed to determine next snapshot number: {}", e);
-                        return;
+                        fail!("Failed to determine next snapshot number: {}", e);
+                        return failure();
                     }
                 };
 
@@ -942,7 +958,7 @@ fn main() {
                         println!("Tree {} cloned from {}.", snap_num,snapshot);
                     },
                     Err(e) => {
-                        eprintln!("{}", e);
+                        fail!("{}", e);
                     },
                 }
             }
@@ -957,8 +973,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -967,7 +983,7 @@ fn main() {
                 let run = refresh(&snapshot);
                 match run {
                     Ok(_) => (),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Reset
@@ -978,10 +994,10 @@ fn main() {
                     Ok(_) => {
                         // Reboot system
                         if let Err(e) = Command::new("reboot").status() {
-                            eprintln!("Failed to reboot: {}", e);
+                            fail!("Failed to reboot: {}", e);
                         }
                     },
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Rollback
@@ -990,7 +1006,7 @@ fn main() {
                 let run = rollback();
                 match run {
                     Ok(_) => (),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Chroot run
@@ -1004,8 +1020,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -1017,14 +1033,14 @@ fn main() {
                 let run = chroot(&snapshot, cmds);
                 match run {
                     Ok(_) => (),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Subvolumes list
             Some(("subvolumes", _matches)) => {
                 // Run list_subvolumes
                 if let Err(e) = list_subvolumes() {
-                    eprintln!("{}", e);
+                    fail!("{}", e);
                 }
             }
             // Tree sync
@@ -1038,8 +1054,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -1051,7 +1067,7 @@ fn main() {
                 let run = tree_sync(&treename, live);
                 match run {
                     Ok(_) => println!("Tree {} synced.", treename),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Tree install
@@ -1065,8 +1081,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -1107,7 +1123,7 @@ fn main() {
                 let run = tree_install(&treename, &pkgs, &profiles, force, &user_profiles, noconfirm, secondary);
                 match run {
                     Ok(_) => (),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // tmp (clear tmp)
@@ -1116,14 +1132,14 @@ fn main() {
                 let run = temp_snapshots_clear();
                 match run {
                     Ok(_) => (),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Tree
             Some(("tree", _matches)) => {
                 //Run tree_show
                 if let Err(e) = tree_show() {
-                    eprintln!("{}", e);
+                    fail!("{}", e);
                 }
             }
             // Tree remove
@@ -1137,8 +1153,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -1177,7 +1193,7 @@ fn main() {
                 let run = tree_remove(&treename, &pkgs, &profiles, &user_profiles, noconfirm);
                 match run {
                     Ok(_) => println!("Tree {} updated.", treename),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Tree run
@@ -1191,8 +1207,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(treename) => treename,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -1205,7 +1221,7 @@ fn main() {
                     let run = tree_run(&treename, &cmd);
                     match run {
                         Ok(_) => println!("Tree {} updated.", treename),
-                        Err(e) => eprintln!("{}", e),
+                        Err(e) => fail!("{}", e),
                     }
                 }
             }
@@ -1220,8 +1236,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -1230,7 +1246,7 @@ fn main() {
                 let run = tree_upgrade(&treename);
                 match run {
                     Ok(_) => println!("Tree {} updated.", treename),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Uninstall package(s) from a snapshot
@@ -1244,8 +1260,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -1285,7 +1301,7 @@ fn main() {
                 let run = uninstall_triage(&snapshot, live, pkgs, &profile, &user_profile, noconfirm);
                 match run {
                     Ok(_) => (),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Service control
@@ -1296,7 +1312,7 @@ fn main() {
                 } else {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
-                        Err(e) => { eprintln!("{}", e); return; }
+                        Err(e) => { fail!("{}", e); return failure(); }
                     }
                 };
                 let enable: Vec<String> = if service_matches.contains_id("ENABLE") {
@@ -1308,7 +1324,7 @@ fn main() {
 
                 match service_control(&snapshot, &enable, &disable) {
                     Ok(_) => println!("Service state updated in snapshot {}.", snapshot),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Unlock a snapshot
@@ -1322,8 +1338,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -1332,7 +1348,7 @@ fn main() {
                 let run = snapshot_unlock(&snapshot);
                 match run {
                     Ok(_) => (),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Upgrade a snapshot
@@ -1346,8 +1362,8 @@ fn main() {
                     match get_current_snapshot() {
                         Ok(snap) => snap,
                         Err(e) => {
-                            eprintln!("{}", e);
-                            return;
+                            fail!("{}", e);
+                            return failure();
                         }
                     }
                 };
@@ -1364,7 +1380,7 @@ fn main() {
                 };
                 match run {
                     Ok(_) => {},
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // dsnap version
@@ -1373,7 +1389,7 @@ fn main() {
                 let run = dsnap_version();
                 match run {
                     Ok(version) => println!("{}", version),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Which snapshot(s) contain a package
@@ -1384,7 +1400,7 @@ fn main() {
                 // Run which_snapshot_has
                 match which_snapshot_has(pkgs) {
                     Ok(_) => (),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
             // Which deployment is active
@@ -1392,7 +1408,7 @@ fn main() {
                 // Run print_tmp
                 match print_tmp() {
                     Ok(tmp) => println!("{}", tmp),
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => fail!("{}", e),
                 }
             }
            _=> unreachable!(), // If all subcommands called, anything else is unreachable
@@ -1400,4 +1416,10 @@ fn main() {
     }
 }
             }
-        }
+
+    if FAILED.load(Ordering::SeqCst) {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
