@@ -1127,7 +1127,7 @@ fn main() {
                 }
             }
             // Tree remove
-            Some(("tremove", tremove_matches)) => {
+            Some(("tree-uninstall" | "tremove" | "tree-rm" | "tuninstall", tremove_matches)) => {
                 // Get treename value
                 let treename = if tremove_matches.contains_id("TREENAME") {
                     let snap = tremove_matches.get_one::<i32>("TREENAME").unwrap();
