@@ -284,7 +284,7 @@ pub fn cli() -> Command {
         .subcommand(Command::new("fixdb")
                     .alias("fix")
                     .hide(!cfg!(feature = "pacman"))
-                    .about("Fix package database of a snapshot")
+                    .about("Rebuild the pacman keyring and package database in a snapshot")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
                          .alias("snap")
