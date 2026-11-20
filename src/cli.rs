@@ -32,7 +32,7 @@ pub fn cli() -> Command {
         // Base rebuild
         .subcommand(Command::new("base-rebuild")
                     .aliases(["br", "rb"])
-                    .about("Rebuild the base snapshot"),)
+                    .about("Rebuild snapshot 0 from bootstrap packages and its stored profile"),)
         // Base update
         .subcommand(Command::new("base-update")
                     .aliases(["bu", "ub"])
