@@ -294,7 +294,7 @@ pub fn cli() -> Command {
                          .help("snapshot number"),),)
         // Hollow a node
         .subcommand(Command::new("hollow")
-                    .about("Make a snapshot hollow (vulnerable)")
+                    .about("Mount a snapshot as writable / and deploy or discard changes")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
                          .alias("snap")
