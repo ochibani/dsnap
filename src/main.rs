@@ -1111,7 +1111,7 @@ fn main() {
                 }
             }
             // tmp (clear tmp)
-            Some(("clean-tmp" | "tmp" | "tmpclear" | "clear-tmp", _matches)) => {
+            Some(("clean-tmp" | "tmp" | "cleantmp", _matches)) => {
                 // Run temp_snapshots_clear
                 let run = temp_snapshots_clear();
                 match run {

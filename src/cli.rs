@@ -85,7 +85,7 @@ pub fn cli() -> Command {
                          .help("snapshot number"),),)
         // Clear temporary snapshots
         .subcommand(Command::new("clean-tmp")
-                    .aliases(["tmp", "tmpclear", "clear-tmp"])
+                    .aliases(["tmp", "cleantmp"])
                     .about("Clean unmounted chroot working snapshots"))
         // Clone
         .subcommand(Command::new("clone")
