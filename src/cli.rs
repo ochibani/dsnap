@@ -431,8 +431,8 @@ pub fn cli() -> Command {
                     .aliases(["lchroot", "lc"])
                     .about("Open a shell inside currently booted snapshot with read-write access. Changes are discarded on new deployment"))
         // New
-        .subcommand(Command::new("new")
-                    .alias("new-tree")
+        .subcommand(Command::new("new-tree")
+                    .alias("new")
                     .about("Create a new top-level tree from the base snapshot")
                     .arg(Arg::new("DESCRIPTION")
                          .long("description")

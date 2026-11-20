@@ -883,7 +883,7 @@ fn main() {
                 }
             }
             // New
-            Some(("new", new_matches)) => {
+            Some(("new-tree" | "new", new_matches)) => {
                 // Get desc value
                 let desc = if new_matches.contains_id("DESCRIPTION") {
                     let desc = new_matches.get_one::<String>("DESCRIPTION").map(|s| s.as_str()).unwrap().to_string();
