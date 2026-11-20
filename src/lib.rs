@@ -2114,17 +2114,17 @@ fn install_profile(snapshot: &str, profile: &str, force: bool, secondary: bool,
             profconf.load(&cfile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
         } else if force {
             println!("Installing profiles...");
-            install_package_helper(snapshot, &vec!["dsnap-profiles".to_string()], true)?;
+            install_package_helper(snapshot, &vec!["distro-snapper-profiles".to_string()], true)?;
             // The package places the profiles inside the snapshot chroot,
             // not on the host; load the profile from there
             let chr_cfile = format!("/.snapshots/rootfs/snapshot-chr{}/usr/share/dsnap/profiles/{}/{}", snapshot, profile, dist_name);
             profconf.load(&chr_cfile).map_err(|_| Error::new(ErrorKind::NotFound,
-                                  format!("Profile {} was not found in the dsnap-profiles package.", profile)))?;
+                                  format!("Profile {} was not found in the distro-snapper-profiles package.", profile)))?;
         } else if !user_profile.is_empty() {
             profconf.load(user_profile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
         } else if !Path::new(&cfile).is_file() && !force {
             return Err(Error::new(ErrorKind::NotFound,
-                                  "Please install dsnap-profiles package.".to_string()));
+                                  "Please install distro-snapper-profiles package.".to_string()));
         }
 
         // Read presets section in configuration file
@@ -2219,17 +2219,17 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
             profconf.load(&cfile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
         } else if force {
             println!("Installing profiles...");
-            install_package_helper_live(snapshot, &tmp, &vec!["dsnap-profiles".to_string()], true)?;
+            install_package_helper_live(snapshot, &tmp, &vec!["distro-snapper-profiles".to_string()], true)?;
             // The package installs into the live snapshot, not on the
             // host; load the profile from there
             let live_cfile = format!("/.snapshots/rootfs/snapshot-{}/usr/share/dsnap/profiles/{}/{}", tmp, profile, dist_name);
             profconf.load(&live_cfile).map_err(|_| Error::new(ErrorKind::NotFound,
-                                  format!("Profile {} was not found in the dsnap-profiles package.", profile)))?;
+                                  format!("Profile {} was not found in the distro-snapper-profiles package.", profile)))?;
         } else if !user_profile.is_empty() {
             profconf.load(user_profile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
         } else if !Path::new(&cfile).is_file() && !force {
             return Err(Error::new(ErrorKind::NotFound,
-                                  "Please install dsnap-profiles package.".to_string()));
+                                  "Please install distro-snapper-profiles package.".to_string()));
         }
 
         // Read presets section in configuration file
