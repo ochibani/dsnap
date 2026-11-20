@@ -3265,8 +3265,7 @@ pub fn reset() -> Result<(), Error> {
 // Rollback last booted deployment //REVIEW => display manager on debian is issue
 pub fn rollback() -> Result<(), Error> {
     let tmp = "rollback";
-    let i = find_new()?;
-    clone_as_tree(&tmp, "Rollback")?;
+    let i = clone_as_tree(&tmp, "Rollback")?;
     deploy(&i.to_string(), false, false)?;
     Ok(())
 }
