@@ -756,7 +756,7 @@ pub fn cli() -> Command {
         // Which snapshot(s) contain a package
         .subcommand(Command::new("whichsnap")
                     .alias("ws")
-                    .about("Which snapshot has a package installed")
+                    .about("Show which snapshots have the specified package(s) installed")
                     .arg_required_else_help(true)
                     .arg(Arg::new("PACKAGE")
                          .long("package")
@@ -765,7 +765,7 @@ pub fn cli() -> Command {
                          .num_args(1..)
                          .value_parser(clap::value_parser!(String))
                          .required(true)
-                         .help("a package"),),)
+                         .help("package(s) to search for"),),)
         // Which deployment is active
         .subcommand(Command::new("whichtmp")
                     .aliases(["which", "whichdep"])
