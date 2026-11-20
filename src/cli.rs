@@ -119,7 +119,7 @@ pub fn cli() -> Command {
         // Clone recursively
         .subcommand(Command::new("clone-tree")
                     .alias("ct")
-                    .about("Clone a whole tree recursively")
+                    .about("Recursively clone a snapshot and all its descendants")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
                          .alias("snap")
