@@ -3704,13 +3704,6 @@ pub fn snapshot_unlock(snapshot: &str) -> Result<(), Error> {
     Ok(())
 }
 
-// No comment
-pub fn switch_to_windows() -> Result<ExitStatus, Error> {
-    Command::new("efibootmgr").args(["-c", "-L", "Windows",
-                                     "-l", "\\EFI\\BOOT\\BOOTX64.efi"])
-                              .status()
-}
-
 // Fetch the response headers of a HEAD request, optionally skipping TLS
 // certificate verification (needed when the clock is too far off for the
 // certificate to validate).

@@ -291,9 +291,6 @@ pub fn cli() -> Command {
                          .required(false)
                          .value_parser(clap::value_parser!(i32))
                          .help("snapshot number"),),)
-        // Switch to Windows (semi plausible deniability)
-        .subcommand(Command::new("hide")
-                    .about("Hide Linux Distribution and switch to Windows"))
         // Hollow a node
         .subcommand(Command::new("hollow")
                     .about("Make a snapshot hollow (vulnerable)")

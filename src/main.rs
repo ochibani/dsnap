@@ -628,15 +628,6 @@ fn main() {
                     eprintln!("fixdb subcommand is not supported.");
                 }
             }
-            // Switch to Windows (semi plausible deniability)
-            Some(("hide", _matches)) => {
-                // Run switch_to_windows
-                match switch_to_windows() {
-                    Ok(status) if status.success() => {}
-                    Ok(status) => eprintln!("Failed to switch boot entry (exit status: {}).", status),
-                    Err(e) => eprintln!("Failed to switch boot entry: {}", e),
-                }
-            }
             // Hollow a node
             Some(("hollow", hollow_matches)) => {
                 // Get snapshot value
