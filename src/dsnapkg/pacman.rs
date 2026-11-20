@@ -120,13 +120,13 @@ pub fn bootstrap(snapshot: &str) -> Result<(), Error> {
                               format!("Failed to install base packages in snapshot {} chroot.", snapshot)));
     }
 
-    let paru_install = Command::new("sh")
+    let dsnap_install = Command::new("sh")
         .arg("-c")
-        .arg(format!("su aur -c 'paru --dbpath {} -r /.snapshots/rootfs/snapshot-chr{} -Sy --noconfirm --overwrite \"*\" paru'", //TODO replace paru with dsnap
+        .arg(format!("su aur -c 'paru --dbpath {} -r /.snapshots/rootfs/snapshot-chr{} -Sy --noconfirm --overwrite \"*\" dsnap'",
                      tmp_db.path().to_string_lossy(),snapshot)).status()?;
-    if !paru_install.success() {
+    if !dsnap_install.success() {
         return Err(Error::new(ErrorKind::Other,
-                              format!("Failed to install paru package in snapshot {} chroot.", snapshot)));
+                              format!("Failed to install dsnap package in snapshot {} chroot.", snapshot)));
     }
 
     // Copy pacman database from tmp
