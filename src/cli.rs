@@ -261,7 +261,7 @@ pub fn cli() -> Command {
         // etc update
         .subcommand(Command::new("etc-update")
                     .alias("etc")
-                    .about("Update /etc"))
+                    .about("Save live /etc changes into the current snapshot"))
         // Export snapshot
         .subcommand(Command::new("export")
                     .alias("exp")
