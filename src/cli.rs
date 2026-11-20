@@ -57,7 +57,7 @@ pub fn cli() -> Command {
         // Branch
         .subcommand(Command::new("branch")
                     .alias("add-branch")
-                    .about("Create a new branch from snapshot")
+                    .about("Create a new child snapshot under the selected snapshot")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
                          .alias("snap")
