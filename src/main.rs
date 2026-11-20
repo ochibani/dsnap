@@ -1,4 +1,5 @@
 extern crate lib;
+#[cfg(feature = "btrfs")]
 pub mod btrfs;
 mod cli;
 
