@@ -1,4 +1,4 @@
-Name:           dsnap
+Name:           distro-snapper
 Version:        0.1.0
 Release:        1%{?dist}
 Summary:        Immutable tree-shaped meta-distribution using snapshots

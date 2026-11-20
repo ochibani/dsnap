@@ -1,4 +1,4 @@
-Source: dsnap
+Source: distro-snapper
 Section: utils
 Priority: optional
 Maintainer: Chibani <11yzyv86j@relay.firefox.com>
@@ -15,7 +15,7 @@ Standards-Version: 4.7.0
 Homepage: https://github.com/ochibani/dsnap
 Rules-Requires-Root: no
 
-Package: dsnap
+Package: distro-snapper
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, btrfs-progs, curl, efibootmgr
 Recommends: python3-pip
