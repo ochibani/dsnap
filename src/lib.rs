@@ -91,6 +91,14 @@ pub fn dsnap_mounts(i: &str, chr: &str) -> nix::Result<()> {
     // Mount /home
     mount(Some("/home"), format!("{}/home", snapshot_path).as_str(),
           Some(file_system), MsFlags::MS_BIND | MsFlags::MS_SLAVE, None::<&str>)?;
+    // Mount /srv when it exists on the live system
+    if Path::new("/srv").is_dir() {
+        DirBuilder::new().recursive(true)
+                         .create(format!("{}/srv", snapshot_path))
+                         .map_err(|e| nix::errno::Errno::from_i32(e.raw_os_error().unwrap_or(5)))?;
+        mount(Some("/srv"), format!("{}/srv", snapshot_path).as_str(),
+              Some(file_system), MsFlags::MS_BIND | MsFlags::MS_SLAVE, None::<&str>)?;
+    }
     // Mount /proc
     mount(Some("/proc"), format!("{}/proc", snapshot_path).as_str(),
           Some("proc"), MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC | MsFlags::MS_NODEV, None::<&str>)?;
@@ -180,6 +188,13 @@ pub fn dsnap_umounts(i: &str, chr: &str) -> nix::Result<()> {
     // Umount chroot /proc
     umount2(Path::new(&format!("{}/proc", snapshot_path)),
             MntFlags::MNT_DETACH)?;
+    // Umount chroot /srv when present; EINVAL means it was never mounted
+    if let Err(e) = umount2(Path::new(&format!("{}/srv", snapshot_path)),
+                            MntFlags::MNT_DETACH) {
+        if e != nix::errno::Errno::EINVAL {
+            return Err(e);
+        }
+    }
     // Umount chroot /home
     umount2(Path::new(&format!("{}/home", snapshot_path)),
             MntFlags::MNT_DETACH)?;
