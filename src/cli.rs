@@ -651,10 +651,10 @@ pub fn cli() -> Command {
                          .value_parser(clap::value_parser!(i32))
                          .required(false)
                          .help("snapshot number"),),)
-        // Uninstall package(s) from a snapshot
+        // Uninstall package(s) or profile(s) from a snapshot
         .subcommand(Command::new("uninstall")
                     .aliases(["unin", "uninst", "unins", "un"])
-                    .about("Uninstall package(s) from a snapshot")
+                    .about("Uninstall package(s) or profile(s) from a snapshot")
                     .arg(Arg::new("live")
                          .long("live")
                          .short('l')
