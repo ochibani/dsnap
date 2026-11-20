@@ -439,7 +439,7 @@ pub fn cli() -> Command {
         // Rebuild
         .subcommand(Command::new("rebuild")
                     .alias("reb")
-                    .about("Create a new snapshot using another snapshot as the base")
+                    .about("Create a new top-level tree from a fresh bootstrap using a snapshot's saved profile")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
                          .alias("snap")
