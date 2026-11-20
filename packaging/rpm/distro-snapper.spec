@@ -36,7 +36,7 @@ python anytree module at runtime (pip install anytree).}
 
 %build
 export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
-cargo build --release --locked
+cargo build --release --locked --no-default-features --features "base-import,btrfs,grub,import,lock,dnf"
 
 %install
 install -Dm755 target/release/dsnap %{buildroot}%{_bindir}/dsnap

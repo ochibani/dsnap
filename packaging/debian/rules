@@ -6,7 +6,7 @@ export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 	dh $@
 
 override_dh_auto_build:
-	cargo build --release --locked
+	cargo build --release --locked --no-default-features --features "base-import,btrfs,grub,import,lock,apt"
 
 override_dh_auto_test:
 
