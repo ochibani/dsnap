@@ -9,7 +9,7 @@ pub fn cli() -> Command {
         // Auto upgrade
         .subcommand(Command::new("auto-upgrade")
                     .aliases(["au", "autoup"])
-                    .about("Update a snapshot quietly")
+                    .about("Noninteractively update all packages in a snapshot")
                     .arg(Arg::new("SNAPSHOT")
                          .long("snapshot")
                          .alias("snap")
