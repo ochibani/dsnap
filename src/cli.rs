@@ -36,7 +36,7 @@ pub fn cli() -> Command {
         // Base update
         .subcommand(Command::new("base-update")
                     .aliases(["bu", "ub"])
-                    .about("Update the base snapshot")
+                    .about("Update all packages in snapshot 0 and refresh the recovery deployment")
                     .arg(Arg::new("noconfirm")
                          .long("noconfirm")
                          .short('y')
