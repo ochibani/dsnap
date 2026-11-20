@@ -83,6 +83,24 @@ pub fn dsnap_mounts(i: &str, chr: &str) -> nix::Result<()> {
     // Mount /dev
     mount(Some("/dev"), format!("{}/dev", snapshot_path).as_str(),
           Some(file_system), MsFlags::MS_BIND | MsFlags::MS_SLAVE, None::<&str>)?;
+    // Mount a private devpts instance inside the chroot
+    DirBuilder::new().recursive(true)
+                     .create(format!("{}/dev/pts", snapshot_path))
+                     .map_err(|e| nix::errno::Errno::from_i32(e.raw_os_error().unwrap_or(5)))?;
+    mount(Some("devpts"), format!("{}/dev/pts", snapshot_path).as_str(),
+          Some("devpts"), MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC,
+          Some("newinstance,ptmxmode=666,gid=5,mode=620"))?;
+    // Point /dev/ptmx at this instance instead of the host's legacy ptmx
+    mount(Some(format!("{}/dev/pts/ptmx", snapshot_path).as_str()),
+          format!("{}/dev/ptmx", snapshot_path).as_str(),
+          Some(file_system), MsFlags::MS_BIND, None::<&str>)?;
+    // Mount private shared memory inside the chroot
+    DirBuilder::new().recursive(true)
+                     .create(format!("{}/dev/shm", snapshot_path))
+                     .map_err(|e| nix::errno::Errno::from_i32(e.raw_os_error().unwrap_or(5)))?;
+    mount(Some("tmpfs"), format!("{}/dev/shm", snapshot_path).as_str(),
+          Some("tmpfs"), MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
+          Some("size=64m,mode=1777"))?;
     // Mount /etc
     if chr != "chr" {
         mount(Some("/etc"), format!("{}/etc", snapshot_path).as_str(),
@@ -203,6 +221,15 @@ pub fn dsnap_umounts(i: &str, chr: &str) -> nix::Result<()> {
         umount2(Path::new(&format!("{}/etc", snapshot_path)),
                 MntFlags::MNT_DETACH)?;
     }
+    // Umount chroot /dev/shm
+    umount2(Path::new(&format!("{}/dev/shm", snapshot_path)),
+            MntFlags::MNT_DETACH)?;
+    // Umount chroot /dev/ptmx redirect
+    umount2(Path::new(&format!("{}/dev/ptmx", snapshot_path)),
+            MntFlags::MNT_DETACH)?;
+    // Umount chroot /dev/pts
+    umount2(Path::new(&format!("{}/dev/pts", snapshot_path)),
+            MntFlags::MNT_DETACH)?;
     // Umount chroot /dev
     umount2(Path::new(&format!("{}/dev", snapshot_path)),
             MntFlags::MNT_DETACH)?;
