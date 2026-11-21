@@ -64,6 +64,17 @@ fn replace_snapshot_paths(content: &str, from: &str, to: &str) -> String {
         let to_path = format!("@.snapshots_linux/{}/snapshot-{}", kind, to);
         result = replace_snapshot_prefix(&result, &from_path, &to_path);
     }
+    // Snapshot 0 keeps the pre-fstab-setup top-level subvolume names. When it
+    // is cloned and deployed, point those entries at the new deployment slot
+    // just like the already-rewritten deploy paths above.
+    for (placeholder, prefix) in [
+        ("@_linux", "@.snapshots_linux/rootfs/snapshot-"),
+        ("@boot_linux", "@.snapshots_linux/boot/boot-"),
+        ("@etc_linux", "@.snapshots_linux/etc/etc-"),
+        ("@var_linux", "@.snapshots_linux/var/var-"),
+    ] {
+        result = result.replace(placeholder, &format!("{}{}", prefix, to));
+    }
     result
 }
 
