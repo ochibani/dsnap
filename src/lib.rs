@@ -1376,7 +1376,7 @@ pub fn efi_boot_order() -> Result<(), Error> {
 pub fn export(snapshot: &str, dest: &str) -> Result<(), Error> {
     // Get current time
     let time = Local::now().naive_local();
-    let formatted = time.format("%Y%m%d-%H%M%S").to_string();
+    let formatted = time.format("%Y%m%d-%H%M%S%.9f").to_string();
 
     // Send btrfs to destination
     #[cfg(feature = "btrfs")]
