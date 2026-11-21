@@ -583,6 +583,11 @@ pub fn chroot(snapshot: &str, cmds: Vec<String>) -> Result<(), Error> {
                 return Err(Error::new(ErrorKind::Interrupted,
                                       "Chroot process terminated by signal.".to_string()));
             }
+            if !status.success() {
+                chr_delete(snapshot)?;
+                return Err(Error::new(ErrorKind::Other,
+                                      format!("Chroot process exited with status {}.", status)));
+            }
             // Check for profile changes
             if check_profile(snapshot).is_err() {
                 chr_delete(snapshot)?;
