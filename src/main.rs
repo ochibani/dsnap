@@ -994,8 +994,10 @@ fn main() -> ExitCode {
                 match run {
                     Ok(_) => {
                         // Reboot system
-                        if let Err(e) = Command::new("reboot").status() {
-                            fail!("Failed to reboot: {}", e);
+                        match Command::new("reboot").status() {
+                            Ok(status) if status.success() => {}
+                            Ok(status) => fail!("Failed to reboot (exit status: {}).", status),
+                            Err(e) => fail!("Failed to reboot: {}", e),
                         }
                     },
                     Err(e) => fail!("{}", e),
