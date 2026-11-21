@@ -1382,13 +1382,12 @@ pub fn export(snapshot: &str, dest: &str) -> Result<(), Error> {
     #[cfg(feature = "btrfs")]
     {
         // The destination is passed as $1 so paths with spaces or shell
-        // metacharacters survive, and the pipeline status is checked:
-        // otherwise a failed btrfs send was silently ignored whenever
-        // zstd exited successfully
-        let excode = Command::new("sh").arg("-c")
+        // metacharacters survive, and pipefail is used so a failed btrfs
+        // send is not silently ignored when zstd exits successfully
+        let excode = Command::new("bash").arg("-o").arg("pipefail").arg("-c")
                        .arg(format!("sudo btrfs send /.snapshots/rootfs/snapshot-{} | zstd -o \"$1/snapshot-{}.{}.zst\"",
                                     snapshot, snapshot, formatted))
-                       .arg("sh")
+                       .arg("bash")
                        .arg(dest)
                        .status()?;
         if !excode.success() {
