@@ -1686,6 +1686,42 @@ pub fn immutability_enable(snapshot: &str) -> Result<(), Error> {
     Ok(())
 }
 
+// Receive an exported snapshot stream, decompressing zstd exports on the fly
+fn receive_snapshot(path: &str, tmp_path: &str) -> Result<(), Error> {
+    #[cfg(feature = "btrfs")]
+    {
+        // The path travels as $1 so spaces and metacharacters in the import
+        // file survive. `dsnap export` writes a zstd-compressed stream, so
+        // decompress those on the fly; pipefail makes sure a failed
+        // decompression or receive is not treated as success.
+        let (command, script) = if path.ends_with(".zst") {
+            ("bash", "zstd -d -c \"$1\" | btrfs receive \"$2\"")
+        } else {
+            ("sh", "btrfs receive -f \"$1\" \"$2\"")
+        };
+        let mut cmd = Command::new(command);
+        if command == "bash" {
+            cmd.arg("-o").arg("pipefail");
+        }
+        let excode = cmd.arg("-c").arg(script)
+                        .arg(command)
+                        .arg(path)
+                        .arg(tmp_path)
+                        .status()?;
+        if !excode.success() {
+            return Err(Error::new(ErrorKind::Other,
+                                  format!("Failed to receive snapshot from {}.", path)));
+        }
+    }
+
+    #[cfg(not(feature = "btrfs"))]
+    {
+        let _ = (path, tmp_path);
+    }
+
+    Ok(())
+}
+
 // Import snapshot
 pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir) -> Result<(), Error> {
     // Make sure snapshot is not in use by another dsnap process
@@ -1717,22 +1753,7 @@ pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir) -> Resul
 
         // Receive snapshot
         println!("Receiving a snapshot, please wait...");
-        #[cfg(feature = "btrfs")]
-        {
-            // The path travels as $1 so spaces and metacharacters in the
-            // import file survive, and the receive status is checked:
-            // otherwise a partial receive was treated as a success and
-            // the corrupt result imported
-            let excode = Command::new("sh").arg("-c")
-                           .arg(format!("btrfs receive -f \"$1\" {}", tmp_path))
-                           .arg("sh")
-                           .arg(path)
-                           .status()?;
-            if !excode.success() {
-                return Err(Error::new(ErrorKind::Other,
-                                      format!("Failed to receive snapshot from {}.", path)));
-            }
-        }
+        receive_snapshot(path, &tmp_path)?;
 
         // Get snapshot name
         let export_snapshot = get_import_snapshot_name(tmp_dir.path())?;
@@ -1904,22 +1925,7 @@ pub fn import_base(path: &str, tmp_dir: &TempDir) -> Result<String, Error> {
 
         // Receive snapshot
         println!("Receiving a snapshot, please wait...");
-        #[cfg(feature = "btrfs")]
-        {
-            // The path travels as $1 so spaces and metacharacters in the
-            // import file survive, and the receive status is checked:
-            // otherwise a partial receive was treated as a success and
-            // the corrupt result imported
-            let excode = Command::new("sh").arg("-c")
-                           .arg(format!("btrfs receive -f \"$1\" {}", tmp_path))
-                           .arg("sh")
-                           .arg(path)
-                           .status()?;
-            if !excode.success() {
-                return Err(Error::new(ErrorKind::Other,
-                                      format!("Failed to receive snapshot from {}.", path)));
-            }
-        }
+        receive_snapshot(path, &tmp_path)?;
 
         // Get snapshot name
         let snapshot = get_import_snapshot_name(tmp_dir.path())?;
