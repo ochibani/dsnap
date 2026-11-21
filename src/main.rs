@@ -1325,6 +1325,7 @@ fn main() -> ExitCode {
                 } else { Vec::new() };
 
                 match service_control(&snapshot, &enable, &disable) {
+                    Ok(_) if enable.is_empty() && disable.is_empty() => {}
                     Ok(_) => println!("Service state updated in snapshot {}.", snapshot),
                     Err(e) => fail!("{}", e),
                 }
