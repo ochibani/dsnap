@@ -491,7 +491,7 @@ pub fn check_update() -> Result<(), Error> {
 
     // Check state line
     if line.contains("1") {
-        eprintln!("Last update on {} failed.", data);
+        println!("Last update on {} failed.", data);
     } else if line.contains("0") {
         println!("Last update on {} completed successfully.", data);
     }
