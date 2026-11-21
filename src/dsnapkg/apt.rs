@@ -670,7 +670,7 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
 
     let upgrade_args = if noconfirm {
         // Avoid interactive conffile prompts during noninteractive upgrades
-        "DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade"
+        "env DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade"
     } else {
         "apt-get upgrade"
     };
@@ -699,7 +699,7 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
 pub fn upgrade_helper_live(tmp: &str, noconfirm: bool) -> Result<(), Error> {
     let upgrade_args = if noconfirm {
         // Avoid interactive conffile prompts during noninteractive upgrades
-        "DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade"
+        "env DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade"
     } else {
         "apt-get upgrade"
     };
