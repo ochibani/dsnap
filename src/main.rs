@@ -115,14 +115,14 @@ fn main() -> ExitCode {
                 if cfg!(feature = "base-import") {
                     match run {
                         Ok(_) => {
-                            if post_transactions("0").is_ok() {
-                                println!("New base snapshot has been successfully imported.")
-                            } else {
+                            if let Err(e) = post_transactions("0") {
                                 // Clean chroot mount directories
-                                if let Err(e) = chr_delete("0") {
-                                    fail!("Failed to clean chroot after base import failure: {}", e);
+                                if let Err(clean_err) = chr_delete("0") {
+                                    fail!("Failed to clean chroot after base import failure: {}", clean_err);
                                 }
-                                fail!("Failed to import new base snapshot.")
+                                fail!("Failed to finish base import: {}", e);
+                            } else {
+                                println!("New base snapshot has been successfully imported.")
                             }
                         },
                         Err(e) => {
