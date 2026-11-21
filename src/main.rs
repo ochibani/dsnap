@@ -610,17 +610,16 @@ fn main() -> ExitCode {
                                 match get_current_snapshot() {
                                     Ok(snap) => snap,
                                     Err(e) => {
-                                        fail!("{}", e);
-                                        String::new()
+                                        fail!("Failed to determine current snapshot: {}", e);
+                                        return failure();
                                     }
                                 }
                             } else {
                                 snapshot.clone()
                             };
-                            if post_transactions(&snapshot).is_ok() {
-                                println!("Snapshot {}'s package manager database fixed successfully.", snapshot);
-                            } else {
-                                fail!("Fixing package manager database failed.");
+                            match post_transactions(&snapshot) {
+                                Ok(_) => println!("Snapshot {}'s package manager database fixed successfully.", snapshot),
+                                Err(e) => fail!("Failed to finish fixing package manager database: {}", e),
                             }
                         },
                         Err(e) => {
@@ -628,8 +627,8 @@ fn main() -> ExitCode {
                                 match get_current_snapshot() {
                                     Ok(snap) => snap,
                                     Err(e) => {
-                                        fail!("{}", e);
-                                        String::new()
+                                        fail!("Failed to determine current snapshot: {}", e);
+                                        return failure();
                                     }
                                 }
                             } else {
