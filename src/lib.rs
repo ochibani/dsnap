@@ -1642,7 +1642,15 @@ pub fn immutability_disable(snapshot: &str) -> Result<(), Error> {
                 // Disable immutability
                 set_subvolume_read_only(&format!("/.snapshots/rootfs/snapshot-{}", snapshot), false)?;
                 File::create(format!("/.snapshots/rootfs/snapshot-{}/usr/share/dsnap/mutable", snapshot))?;
-                write_desc(snapshot, " MUTABLE ", false)?;
+                // The description can still carry the marker from an earlier
+                // mutable cycle while the subvolume itself is immutable again
+                // (e.g. after hollow's post-transaction recreates it). Append
+                // only when absent so repeated transitions cannot stack
+                // duplicate markers.
+                let descfile = format!("/.snapshots/dsnap/snapshots/{}-desc", snapshot);
+                if !read_to_string(&descfile).unwrap_or_default().contains(" MUTABLE ") {
+                    write_desc(snapshot, " MUTABLE ", false)?;
+                }
             }
         }
 
