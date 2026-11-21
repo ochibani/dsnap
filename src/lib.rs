@@ -1855,6 +1855,12 @@ pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir) -> Resul
         create_snapshot("/.snapshots/var/var-0",
                         &format!("/.snapshots/var/var-chr{}", snapshot),
                         false)?;
+        cp_reflink(format!("/.snapshots/boot/boot-chr{}/.", snapshot),
+                   format!("/.snapshots/rootfs/snapshot-chr{}/boot", snapshot))?;
+        cp_reflink(format!("/.snapshots/etc/etc-chr{}/.", snapshot),
+                   format!("/.snapshots/rootfs/snapshot-chr{}/etc", snapshot))?;
+        cp_reflink(format!("/.snapshots/var/var-chr{}/.", snapshot),
+                   format!("/.snapshots/rootfs/snapshot-chr{}/var", snapshot))?;
 
         // Copy dsnap related configurations
         if Path::new("/etc/systemd").try_exists()? {
@@ -2028,6 +2034,12 @@ pub fn import_base(path: &str, tmp_dir: &TempDir) -> Result<String, Error> {
         create_snapshot("/.snapshots/var/var-0",
                         "/.snapshots/var/var-chr0",
                         false)?;
+        cp_reflink("/.snapshots/boot/boot-chr0/.",
+                   "/.snapshots/rootfs/snapshot-chr0/boot")?;
+        cp_reflink("/.snapshots/etc/etc-chr0/.",
+                   "/.snapshots/rootfs/snapshot-chr0/etc")?;
+        cp_reflink("/.snapshots/var/var-chr0/.",
+                   "/.snapshots/rootfs/snapshot-chr0/var")?;
 
         // Copy dsnap related configurations
         if Path::new("/etc/systemd").try_exists()? {
