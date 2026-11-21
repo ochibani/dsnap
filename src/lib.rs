@@ -163,16 +163,34 @@ pub fn dsnap_mounts(i: &str, chr: &str) -> nix::Result<()> {
 
 // dsnap chroot umounts
 pub fn dsnap_umounts(i: &str, chr: &str) -> nix::Result<()> {
+    dsnap_umounts_inner(i, chr, false)
+}
+
+// Tolerant variant for teardown paths: detaching a recursive live-root bind
+// can also detach prepared chroot mounts, so EINVAL/ENOENT must not abort the
+// rest of the unwind.
+fn dsnap_umounts_quiet(i: &str, chr: &str) -> nix::Result<()> {
+    dsnap_umounts_inner(i, chr, true)
+}
+
+fn umount_chroot(path: &str, flags: MntFlags, tolerant: bool) -> nix::Result<()> {
+    match umount2(Path::new(path), flags) {
+        Ok(()) => Ok(()),
+        Err(nix::errno::Errno::EINVAL) | Err(nix::errno::Errno::ENOENT) if tolerant => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+fn dsnap_umounts_inner(i: &str, chr: &str, tolerant: bool) -> nix::Result<()> {
     let snapshot_path = format!("/.snapshots/rootfs/snapshot-{}{}", chr, i);
 
     // Umount in reverse order
     // Umount /etc/resolv.conf
     if Path::new(&format!("{}/etc/resolv.conf", snapshot_path)).try_exists().map_err(|e| nix::errno::Errno::from_i32(e.raw_os_error().unwrap_or(5)))? {
-        umount2(Path::new(&format!("{}/etc/resolv.conf", snapshot_path)),
-                MntFlags::empty())?;
+        umount_chroot(&format!("{}/etc/resolv.conf", snapshot_path), MntFlags::empty(), tolerant)?;
     } else {
-        umount2(Path::new(&format!("{}/run/systemd/resolve/stub-resolv.conf", snapshot_path)),
-                MntFlags::empty())?;
+        umount_chroot(&format!("{}/run/systemd/resolve/stub-resolv.conf", snapshot_path),
+                      MntFlags::empty(), tolerant)?;
         // Only remove the file we created; /run is a bind of the host's
         // /run (or a shared path), so removing the directory would
         // destroy the live host's systemd-resolved state
@@ -182,60 +200,42 @@ pub fn dsnap_umounts(i: &str, chr: &str) -> nix::Result<()> {
     // Check EFI
     if is_efi() {
         // Umount /sys/firmware/efi/efivars
-        umount2(Path::new(&format!("{}/sys/firmware/efi/efivars", snapshot_path)),
-                MntFlags::empty())?;
+        umount_chroot(&format!("{}/sys/firmware/efi/efivars", snapshot_path),
+                      MntFlags::empty(), tolerant)?;
     }
 
     // Umount /var
     if chr != "chr" {
-        umount2(Path::new(&format!("{}/var", snapshot_path)),
-                MntFlags::empty())?;
+        umount_chroot(&format!("{}/var", snapshot_path), MntFlags::empty(), tolerant)?;
     }
     // Umount chroot /tmp
-    umount2(Path::new(&format!("{}/tmp", snapshot_path)),
-            MntFlags::MNT_DETACH)?;
+    umount_chroot(&format!("{}/tmp", snapshot_path), MntFlags::MNT_DETACH, tolerant)?;
     // Umount chroot /sys
-    umount2(Path::new(&format!("{}/sys", snapshot_path)),
-            MntFlags::MNT_DETACH)?;
+    umount_chroot(&format!("{}/sys", snapshot_path), MntFlags::MNT_DETACH, tolerant)?;
     // Umount chroot /run
-    umount2(Path::new(&format!("{}/run", snapshot_path)),
-            MntFlags::MNT_DETACH)?;
+    umount_chroot(&format!("{}/run", snapshot_path), MntFlags::MNT_DETACH, tolerant)?;
     // Umount chroot /root
-    umount2(Path::new(&format!("{}/root", snapshot_path)),
-            MntFlags::MNT_DETACH)?;
+    umount_chroot(&format!("{}/root", snapshot_path), MntFlags::MNT_DETACH, tolerant)?;
     // Umount chroot /proc
-    umount2(Path::new(&format!("{}/proc", snapshot_path)),
-            MntFlags::MNT_DETACH)?;
+    umount_chroot(&format!("{}/proc", snapshot_path), MntFlags::MNT_DETACH, tolerant)?;
     // Umount chroot /srv when present; EINVAL means it was never mounted
-    if let Err(e) = umount2(Path::new(&format!("{}/srv", snapshot_path)),
-                            MntFlags::MNT_DETACH) {
-        if e != nix::errno::Errno::EINVAL {
-            return Err(e);
-        }
-    }
+    umount_chroot(&format!("{}/srv", snapshot_path), MntFlags::MNT_DETACH, true)?;
     // Umount chroot /home
-    umount2(Path::new(&format!("{}/home", snapshot_path)),
-            MntFlags::MNT_DETACH)?;
+    umount_chroot(&format!("{}/home", snapshot_path), MntFlags::MNT_DETACH, tolerant)?;
     // Umount chroot /etc
     if chr != "chr" {
-        umount2(Path::new(&format!("{}/etc", snapshot_path)),
-                MntFlags::MNT_DETACH)?;
+        umount_chroot(&format!("{}/etc", snapshot_path), MntFlags::MNT_DETACH, tolerant)?;
     }
     // Umount chroot /dev/shm
-    umount2(Path::new(&format!("{}/dev/shm", snapshot_path)),
-            MntFlags::MNT_DETACH)?;
+    umount_chroot(&format!("{}/dev/shm", snapshot_path), MntFlags::MNT_DETACH, tolerant)?;
     // Umount chroot /dev/ptmx redirect
-    umount2(Path::new(&format!("{}/dev/ptmx", snapshot_path)),
-            MntFlags::MNT_DETACH)?;
+    umount_chroot(&format!("{}/dev/ptmx", snapshot_path), MntFlags::MNT_DETACH, tolerant)?;
     // Umount chroot /dev/pts
-    umount2(Path::new(&format!("{}/dev/pts", snapshot_path)),
-            MntFlags::MNT_DETACH)?;
+    umount_chroot(&format!("{}/dev/pts", snapshot_path), MntFlags::MNT_DETACH, tolerant)?;
     // Umount chroot /dev
-    umount2(Path::new(&format!("{}/dev", snapshot_path)),
-            MntFlags::MNT_DETACH)?;
+    umount_chroot(&format!("{}/dev", snapshot_path), MntFlags::MNT_DETACH, tolerant)?;
     // Umount chroot directory
-    umount2(Path::new(&format!("{}", snapshot_path)),
-            MntFlags::MNT_DETACH)?;
+    umount_chroot(&format!("{}", snapshot_path), MntFlags::MNT_DETACH, tolerant)?;
 
     Ok(())
 }
@@ -2704,18 +2704,21 @@ pub fn post_transactions(snapshot: &str) -> Result<(), Error> {
 
 // Tear down mounts created by prepare() and hollow() without committing content
 fn hollow_teardown(snapshot: &str) -> Result<(), Error> {
-    // Umount the nested chroot view inside the live-root bind
-    let nested = format!("/.snapshots/rootfs/snapshot-chr{}/.snapshots/rootfs/snapshot-chr{}/", snapshot, snapshot);
+    // Umount the nested chroot view inside the live-root bind. Detaching the
+    // top bind below also detaches this subtree, so tolerate an already-gone
+    // mount here.
+    let nested = format!("/.snapshots/rootfs/snapshot-chr{}/.snapshots/rootfs/snapshot-chr{}", snapshot, snapshot);
     if is_mounted(Path::new(&nested))? {
-        umount2(Path::new(&nested), MntFlags::MNT_DETACH)?;
+        umount_chroot(&nested, MntFlags::MNT_DETACH, true)?;
     }
     // Umount the live root bind hollow() put on top of the chroot
     let chr_path = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
     if is_mounted(Path::new(&chr_path))? {
         umount2(Path::new(&chr_path), MntFlags::MNT_DETACH)?;
     }
-    // Unwind the chroot mounts prepare() created (resolv, sys, proc, ..., self-bind)
-    dsnap_umounts(snapshot, "chr")?;
+    // Unwind the chroot mounts prepare() created (resolv, sys, proc, ..., self-bind).
+    // Some may have been detached with the live-root bind above.
+    dsnap_umounts_quiet(snapshot, "chr")?;
     // Umount the mutable_dirs binds prepare() mounted into the chroot;
     // dsnap_umounts() does not know about them
     let options = snapshot_config_get(snapshot);
@@ -2735,7 +2738,7 @@ fn hollow_teardown(snapshot: &str) -> Result<(), Error> {
     for mount_path in mount_paths {
         let mount = format!("/.snapshots/rootfs/snapshot-chr{}/{}", snapshot, mount_path);
         if is_mounted(Path::new(&mount))? {
-            umount2(Path::new(&mount), MntFlags::MNT_DETACH)?;
+            umount_chroot(&mount, MntFlags::MNT_DETACH, true)?;
         }
     }
     Ok(())
