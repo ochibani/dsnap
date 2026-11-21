@@ -2704,6 +2704,15 @@ pub fn post_transactions(snapshot: &str) -> Result<(), Error> {
 
 // Tear down mounts created by prepare() and hollow() without committing content
 fn hollow_teardown(snapshot: &str) -> Result<(), Error> {
+    let chr_path = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
+    // hollow() recursively bind-mounted / here. On some kernels the cloned
+    // submounts (/proc, /sys, ...) stay in the live mounts' peer group, so an
+    // unmount would propagate and unmount the running system's real /proc.
+    // Make the whole tree private before unmounting anything.
+    if is_mounted(Path::new(&chr_path))? {
+        mount(None::<&str>, Path::new(&chr_path), None::<&str>,
+              MsFlags::MS_PRIVATE | MsFlags::MS_REC, None::<&str>)?;
+    }
     // Umount the nested chroot view inside the live-root bind. Detaching the
     // top bind below also detaches this subtree, so tolerate an already-gone
     // mount here.
@@ -2712,7 +2721,6 @@ fn hollow_teardown(snapshot: &str) -> Result<(), Error> {
         umount_chroot(&nested, MntFlags::MNT_DETACH, true)?;
     }
     // Umount the live root bind hollow() put on top of the chroot
-    let chr_path = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
     if is_mounted(Path::new(&chr_path))? {
         umount2(Path::new(&chr_path), MntFlags::MNT_DETACH)?;
     }
