@@ -78,6 +78,13 @@ fn replace_snapshot_paths(content: &str, from: &str, to: &str) -> String {
     result
 }
 
+pub fn fix_fstab_snapshot_paths(path: &str, from: &str, to: &str) -> Result<(), Error> {
+    let mut contents = String::new();
+    File::open(path)?.read_to_string(&mut contents)?;
+    let updated = replace_snapshot_paths(&contents, from, to);
+    atomic_write(Path::new(path), &updated)
+}
+
 fn replace_recovery_snapshot_paths(entry: &str, source_dep: &str, target_dep: &str) -> String {
     let mut candidates = vec![source_dep.to_string(), get_recovery_aux_tmp(source_dep)];
     candidates.sort_by(|a, b| b.len().cmp(&a.len()));

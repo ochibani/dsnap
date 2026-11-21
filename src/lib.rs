@@ -944,7 +944,8 @@ pub fn deploy(snapshot: &str, secondary: bool, reset: bool) -> Result<String, Er
 
     } else {
         // Create rollback snapshot
-        let tmp = get_tmp();
+        let source_dep = get_tmp();
+        let tmp = source_dep.clone();
         if Path::new("/.snapshots/rootfs/snapshot-rollback").try_exists()? {
             delete_subvolume("/.snapshots/rootfs/snapshot-rollback")?;
             delete_subvolume("/.snapshots/boot/boot-rollback")?;
@@ -1094,6 +1095,10 @@ pub fn deploy(snapshot: &str, secondary: bool, reset: bool) -> Result<String, Er
                                               .open(format!("/.snapshots/rootfs/snapshot-{}/usr/share/dsnap/snap", tmp))?;
         snap_file.write_all(snap_num.as_bytes())?;
         let target_dep = switch_tmp(snapshot, secondary, reset)?;
+        // The /etc subvolume is mounted over the rootfs copy at boot, so its
+        // fstab must be rewritten too; switch_tmp only updates the rootfs copy.
+        fix_fstab_snapshot_paths(&format!("/.snapshots/etc/etc-{}/fstab", target_dep),
+                                 &source_dep, &target_dep)?;
 
         // Set default volume
         #[cfg(feature = "btrfs")]
