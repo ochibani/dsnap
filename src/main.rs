@@ -345,7 +345,7 @@ fn main() -> ExitCode {
                 // Run clone_under
                 let run = clone_under(&snapshot, &branch);
                 match run {
-                    Ok(snapshot_num) => println!("Branch {} added to parent of {}.", snapshot_num,snapshot),
+                    Ok(snapshot_num) => println!("Branch {} added under snapshot {}.", snapshot_num,snapshot),
                     Err(e) => fail!("{}", e),
                 }
             }
