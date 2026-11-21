@@ -4556,9 +4556,17 @@ pub fn yes_no(msg: &str) -> bool {
     loop {
         println!("{} (y/n)", msg);
         let mut reply = String::new();
-        if let Err(e) = stdin().read_line(&mut reply) {
-            eprintln!("Failed to read input: {}", e);
-            return false;
+        match stdin().read_line(&mut reply) {
+            Ok(0) => {
+                // EOF (for example a closed stdin or piped input) would
+                // otherwise spin forever on "Invalid choice!".
+                return false;
+            }
+            Ok(_) => (),
+            Err(e) => {
+                eprintln!("Failed to read input: {}", e);
+                return false;
+            }
         }
         match reply.trim().to_lowercase().as_str() {
             "n" | "no" => return false,
