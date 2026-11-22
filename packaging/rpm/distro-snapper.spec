@@ -42,6 +42,8 @@ cargo build --release --locked --no-default-features --features "base-import,btr
 install -Dm755 target/release/dsnap %{buildroot}%{_bindir}/dsnap
 install -Dm644 %{SOURCE1} %{buildroot}%{_unitdir}/dsnap-auto-upgrade.service
 install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/dsnap-auto-upgrade.timer
+install -Dm644 target/release/build/dsnap-*/out/dsnap.8 %{buildroot}%{_mandir}/man8/dsnap.8
+install -m644 target/release/build/dsnap-*/out/dsnap-*.8 %{buildroot}%{_mandir}/man8/
 install -Dm644 target/release/build/dsnap-*/out/dsnap.bash %{buildroot}%{_datadir}/bash-completion/completions/dsnap
 install -Dm644 target/release/build/dsnap-*/out/_dsnap %{buildroot}%{_datadir}/zsh/site-functions/_dsnap
 install -Dm644 target/release/build/dsnap-*/out/dsnap.fish %{buildroot}%{_datadir}/fish/vendor_completions.d/dsnap.fish
@@ -49,6 +51,7 @@ install -Dm644 target/release/build/dsnap-*/out/dsnap.fish %{buildroot}%{_datadi
 %files
 %license LICENSE
 %{_bindir}/dsnap
+%{_mandir}/man8/dsnap*.8*
 %{_unitdir}/dsnap-auto-upgrade.service
 %{_unitdir}/dsnap-auto-upgrade.timer
 %{_datadir}/bash-completion/completions/dsnap

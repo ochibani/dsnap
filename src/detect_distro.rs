@@ -75,7 +75,7 @@ pub fn distro_id() -> String {
 // Detect distro name
 pub fn distro_name(snapshot: &str) -> String {
     let mut distro_name = String::new();
-    // If /etc/lsb-release check fails, check if /etc/os-release exists and contains ID
+    // Check /etc/os-release first and use NAME for the distribution name
     if let Ok(file) = read_to_string(format!("/.snapshots/rootfs/snapshot-chr{}/etc/os-release", snapshot)) {
         for line in file.lines() {
             if line.starts_with("NAME=") {
@@ -87,7 +87,7 @@ pub fn distro_name(snapshot: &str) -> String {
         }
     }
 
-    // Check if /etc/lsb-release exists and contains DISTRIB_NAME
+    // If /etc/os-release parsing fails, check /etc/lsb-release for DISTRIB_DESCRIPTION
     if distro_name.is_empty() {
         if let Ok(file) = read_to_string(format!("/.snapshots/rootfs/snapshot-chr{}/etc/lsb-release", snapshot)) {
             for line in file.lines() {

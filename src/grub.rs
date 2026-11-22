@@ -321,7 +321,7 @@ pub fn switch_recovery_tmp(snapshot: &str, target_snapshot: &str) -> Result<(), 
     let part = get_part()?;
     let boot = BootMount::new(&part)?;
 
-    // Swap deployment subvolumes: deploy <-> deploy-aux
+    // Point the recovery GRUB entry at the auxiliary recovery deployment
     let source_dep = get_recovery_tmp();
     let target_dep = get_recovery_aux_tmp(&source_dep);
     let boot_location = boot.path().to_string_lossy();
@@ -364,7 +364,7 @@ pub fn switch_tmp(snapshot: &str, secondary: bool, reset: bool) -> Result<String
     let rec_tmp = get_recovery_tmp();
     let boot = BootMount::new(&part)?;
 
-    // Swap deployment subvolumes: deploy <-> deploy-aux
+    // Update boot configuration for the target deployment slot
     let source_dep = get_tmp();
     let source_grub = get_grub(&source_dep)?;
     let target_dep = get_aux_tmp(source_dep.to_string(), secondary);

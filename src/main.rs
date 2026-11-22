@@ -36,7 +36,7 @@ use grub::update_boot;
 
 
 // Directories
-// Global boot is always at @boot
+// Global boot is always at @boot_linux
 // *-chr                             : temporary directories used to chroot into snapshot or copy snapshots around
 // *-deploy and *-deploy-aux         : temporary directories used to boot deployed snapshot
 // *-deploy[-aux]-secondary          : temporary directories used to boot secondary deployed snapshot
@@ -55,9 +55,9 @@ use grub::update_boot;
 // /etc/dsnap/profile                  : snapshot profile
 // /usr/bin/dsnap                      : dsnap binary file location
 // /usr/share/dsnap                    : files that store current snapshot info
-// /use/share/dsnap/profiles           : default desktop environments profiles path
-// /use/share/dsnap/rec-tmp            : name of temporary directory used to boot recovery snapshot
-// /use/share/dsnap/snap               : snapshot number
+// /usr/share/dsnap/profiles           : default desktop environments profiles path
+// /usr/share/dsnap/rec-tmp            : name of temporary directory used to boot recovery snapshot
+// /usr/share/dsnap/snap               : snapshot number
 // /var/lib/dsnap(/fstree)             : dsnap files, stores fstree, symlink to /.snapshots/dsnap/fstree
 
 fn main() -> ExitCode {

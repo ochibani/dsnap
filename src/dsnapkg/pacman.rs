@@ -611,7 +611,7 @@ pub fn refresh_helper(snapshot: &str) -> Result<(), Error> {
    Ok(())
 }
 
-// Disable service(s) (Systemd, OpenRC, etc.)
+// Disable service(s)
 pub fn service_disable(snapshot: &str, services: &Vec<String>, chr: &str) -> Result<(), Error> {
     for service in services {
         // Systemd
@@ -629,7 +629,7 @@ pub fn service_disable(snapshot: &str, services: &Vec<String>, chr: &str) -> Res
     Ok(())
 }
 
-// Enable service(s) (Systemd, OpenRC, etc.)
+// Enable service(s)
 pub fn service_enable(snapshot: &str, services: &Vec<String>, chr: &str) -> Result<(), Error> {
     for service in services {
         // Systemd

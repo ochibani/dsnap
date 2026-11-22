@@ -97,10 +97,10 @@ pub fn clean_cache(snapshot: &str) -> Result<(), Error> {
     Ok(())
 }
 
-// Distribution code name
+// Distribution version identifier used as --releasever
 pub fn code_name(snapshot: &str) -> String {
     let mut code_name = String::new();
-    // Check if /etc/os-release exists and contains ID
+    // Check if /etc/os-release exists and contains VERSION_ID
     if code_name.is_empty() {
         if let Ok(file) = read_to_string(&format!("/.snapshots/rootfs/snapshot-{}/etc/os-release", snapshot)) {
             for line in file.lines() {
@@ -328,7 +328,7 @@ pub fn refresh_helper(snapshot: &str) -> Result<(), Error> {
     Ok(())
 }
 
-// Disable service(s) (Systemd, OpenRC, etc.)
+// Disable service(s)
 pub fn service_disable(snapshot: &str, services: &Vec<String>, chr: &str) -> Result<(), Error> {
     for service in services {
         // Systemd
@@ -346,7 +346,7 @@ pub fn service_disable(snapshot: &str, services: &Vec<String>, chr: &str) -> Res
     Ok(())
 }
 
-// Enable service(s) (Systemd, OpenRC, etc.)
+// Enable service(s)
 pub fn service_enable(snapshot: &str, services: &Vec<String>, chr: &str) -> Result<(), Error> {
     for service in services {
         // Systemd

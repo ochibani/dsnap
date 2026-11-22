@@ -2807,7 +2807,7 @@ pub fn prepare(snapshot: &str) -> Result<(), Error> {
                     &snapshot_chr,
                     false)?;
 
-    // Pacman gets weird when chroot directory is not a mountpoint, so the following mount is necessary
+    // Ensure the chroot directory is a mountpoint before package operations
     dsnap_mounts(snapshot, "chr")?;
 
     // Special mutable directories
@@ -3136,7 +3136,7 @@ pub fn rebuild_prep(snapshot: &str) -> Result<(), Error> {
     // Bootstrap snapshot
     bootstrap(snapshot)?;
 
-    // Pacman gets weird when chroot directory is not a mountpoint, so the following mount is necessary
+    // Ensure the chroot directory is a mountpoint before package operations
     dsnap_mounts(snapshot, "chr")?;
 
     // Copy old snapshot

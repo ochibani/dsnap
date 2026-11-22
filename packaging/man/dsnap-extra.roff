@@ -1,0 +1,137 @@
+.SH FEATURE AVAILABILITY
+.B dsnap
+selects one package manager at compile time. The
+.BR apt ,
+.BR dnf ,
+and
+.B pacman
+features are mutually exclusive. The generated command list reflects the
+features selected for the build, so unavailable feature-gated commands are
+not shown.
+.TP
+.B base-import
+The
+.B base-import
+command is compiled in only with the
+.B base-import
+feature.
+.TP
+.B import
+The
+.B import
+command is compiled in only with the
+.B import
+feature.
+.TP
+.B fixdb
+The
+.B fixdb
+command is compiled in only with the
+.B pacman
+feature. In dnf and apt builds it reports that the subcommand is not
+supported rather than attempting pacman keyring repair.
+.SH NOTES
+.B efi-update
+requires an EFI firmware interface. Without
+.IR /sys/firmware/efi ,
+for example inside WSL, it reports that the command is not supported.
+.PP
+Commands that operate on snapshot copies normally create a locked
+.I snapshot-chrN
+working subvolume. If a command is interrupted, use
+.B dsnap unlock -s N
+to clear the lock and discard the uncommitted changes.
+.PP
+The
+.B auto-upgrade
+service and timer shipped with dsnap are inert by default and are never
+enabled automatically.
+.SH EXIT STATUS
+.TP
+.B 0
+The command completed successfully, or an informational command printed its
+state.
+.TP
+.B 1
+The command failed, a requested snapshot or path does not exist, or an
+operation was rejected.
+.SH FILES
+.TP
+.I /.snapshots
+Btrfs filesystem holding dsnap snapshot subvolumes and metadata.
+.TP
+.I /.snapshots/dsnap/fstree
+Serialized snapshot tree.
+.TP
+.I /.snapshots/dsnap/snapshots/N-desc
+Description of snapshot
+.IR N .
+.TP
+.I /.snapshots/dsnap/upstate
+Last update status and date.
+.TP
+.I /.snapshots/rootfs/snapshot-N
+Root filesystem subvolume for snapshot
+.IR N .
+.TP
+.I /.snapshots/boot/boot-N
+Boot directory subvolume for snapshot
+.IR N .
+.TP
+.I /.snapshots/etc/etc-N
+Configuration subvolume for snapshot
+.IR N .
+.TP
+.I /.snapshots/var/var-N
+Variable data subvolume for snapshot
+.IR N .
+.TP
+.I /usr/share/dsnap/snap
+File containing the current snapshot number.
+.TP
+.I /usr/share/dsnap/deploy
+File containing the active deployment slot.
+.TP
+.I /usr/share/dsnap/profiles
+Installed dsnap profiles.
+.SH EXAMPLES
+Show the snapshot tree and current snapshot:
+.PP
+.nf
+.RS
+dsnap tree
+dsnap current
+.RE
+.fi
+.PP
+Upgrade snapshot 1 noninteractively and make it the next boot target:
+.PP
+.nf
+.RS
+dsnap upgrade -s 1 -y
+dsnap deploy -s 1
+.RE
+.fi
+.PP
+Create a described child of the current snapshot:
+.PP
+.nf
+.RS
+dsnap add-branch -d "test snapshot"
+.RE
+.fi
+.PP
+Export the base snapshot to a directory:
+.PP
+.nf
+.RS
+dsnap export -s 0 -o /var/tmp
+.RE
+.fi
+.SH SEE ALSO
+.BR btrfs (8),
+.BR btrfs-subvolume (8),
+.BR grub-mkconfig (8),
+.BR systemctl (1)
+.SH AUTHOR
+Chibani <11yzyv86j@relay.firefox.com>
