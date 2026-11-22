@@ -100,8 +100,12 @@ pub fn cache_copy(snapshot: &str, prepare: bool) -> Result<(), Error> {
 
 // Clean apt cache
 pub fn clean_cache(snapshot: &str) -> Result<(), Error> {
-    if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/var/cache/apt", snapshot)).try_exists()? {
-        remove_dir_content(&format!("/.snapshots/rootfs/snapshot-chr{}/var/cache/apt", snapshot))?;
+    // Keep the archives directory itself: chr_delete() copies this cache back
+    // to the deployed snapshot after cleanup, so removing the directory makes
+    // that copy fail. Only clear the downloaded packages inside it.
+    let archives = format!("/.snapshots/rootfs/snapshot-chr{}/var/cache/apt/archives", snapshot);
+    if Path::new(&archives).try_exists()? {
+        remove_dir_content(&archives)?;
     }
     Ok(())
 }
