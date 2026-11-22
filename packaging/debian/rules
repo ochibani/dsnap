@@ -11,14 +11,14 @@ override_dh_auto_build:
 override_dh_auto_test:
 
 override_dh_auto_install:
-	install -Dm755 target/release/dsnap debian/dsnap/usr/bin/dsnap
-	install -Dm644 packaging/systemd/dsnap-auto-upgrade.service debian/dsnap/usr/lib/systemd/system/dsnap-auto-upgrade.service
-	install -Dm644 packaging/systemd/dsnap-auto-upgrade.timer debian/dsnap/usr/lib/systemd/system/dsnap-auto-upgrade.timer
-	install -Dm644 target/release/build/dsnap-*/out/dsnap.8 debian/dsnap/usr/share/man/man8/dsnap.8
-	install -m644 target/release/build/dsnap-*/out/dsnap-*.8 debian/dsnap/usr/share/man/man8/
-	install -Dm644 target/release/build/dsnap-*/out/dsnap.bash debian/dsnap/usr/share/bash-completion/completions/dsnap
-	install -Dm644 target/release/build/dsnap-*/out/_dsnap debian/dsnap/usr/share/zsh/vendor-completions/_dsnap
-	install -Dm644 target/release/build/dsnap-*/out/dsnap.fish debian/dsnap/usr/share/fish/vendor_completions.d/dsnap.fish
+	install -Dm755 target/release/dsnap debian/distro-snapper/usr/bin/dsnap
+	install -Dm644 packaging/systemd/dsnap-auto-upgrade.service debian/distro-snapper/usr/lib/systemd/system/dsnap-auto-upgrade.service
+	install -Dm644 packaging/systemd/dsnap-auto-upgrade.timer debian/distro-snapper/usr/lib/systemd/system/dsnap-auto-upgrade.timer
+	install -Dm644 target/release/build/dsnap-*/out/dsnap.8 debian/distro-snapper/usr/share/man/man8/dsnap.8
+	install -m644 target/release/build/dsnap-*/out/dsnap-*.8 debian/distro-snapper/usr/share/man/man8/
+	install -Dm644 target/release/build/dsnap-*/out/dsnap.bash debian/distro-snapper/usr/share/bash-completion/completions/dsnap
+	install -Dm644 target/release/build/dsnap-*/out/_dsnap debian/distro-snapper/usr/share/zsh/vendor-completions/_dsnap
+	install -Dm644 target/release/build/dsnap-*/out/dsnap.fish debian/distro-snapper/usr/share/fish/vendor_completions.d/dsnap.fish
 
 # Ship the units but never enable or start them (disabled by default).
 override_dh_installsystemd:
