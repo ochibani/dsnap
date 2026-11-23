@@ -22,12 +22,12 @@ Requires:       btrfs-progs
 Requires:       curl
 Requires:       efibootmgr
 Requires:       python3
+Requires:       python3-anytree
 Recommends:     systemd
 
 %global _description %{expand:
 dsnap manages tree-shaped btrfs snapshot layouts, letting a system be
-deployed, restored and exported as immutable snapshot trees. Requires the
-python anytree module at runtime (pip install anytree).}
+deployed, restored and exported as immutable snapshot trees.}
 
 %description %{_description}
 
