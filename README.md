@@ -14,6 +14,10 @@ The installed command is `dsnap`. Package names use the hyphenated form
 > and read [`docs/partitioning.md`](docs/partitioning.md) before running
 > commands that modify disks, snapshots or boot entries.
 
+## Translations
+
+[English](README.md) · [العربية](README.ar.md)
+
 ## Quick links
 
 - [Easy installation path](docs/partitioning.md#easy-installation-path)
