@@ -449,7 +449,7 @@ fn sign_checksum_file(path: &str, signing_key: &str) -> Result<(), Error> {
 
 // Verify the detached signature against the local trust store.
 // A temporary GNUPGHOME keeps root's normal keyring out of this decision.
-fn verify_snapshot_signature(digest_path: &str) -> Result<(), Error> {
+fn verify_snapshot_signature(digest_path: &str, data_path: &str) -> Result<(), Error> {
     let signature = format!("{}.sig", digest_path);
     if !Path::new(&signature).is_file() {
         audit_log("verify-import-signature", &[("path", digest_path), ("result", "missing")]);
@@ -487,7 +487,7 @@ fn verify_snapshot_signature(digest_path: &str) -> Result<(), Error> {
         .arg(home.path())
         .arg("--verify")
         .arg(&signature)
-        .arg(digest_path)
+        .arg(data_path)
         .status()?;
     if !status.success() {
         audit_log("verify-import-signature", &[("path", digest_path), ("result", "invalid")]);
@@ -501,11 +501,12 @@ fn verify_snapshot_signature(digest_path: &str) -> Result<(), Error> {
 
 // Verify authenticity and integrity before an import reaches btrfs receive.
 // --allow-unverified is an explicit, audited escape hatch for trusted legacy exports.
-fn verify_snapshot_checksum(path: &str, allow_unverified: bool) -> Result<(), Error> {
-    let sidecar = format!("{}.sha512", path);
+fn verify_snapshot_checksum_for(source_path: &str, data_path: &str,
+                                allow_unverified: bool) -> Result<(), Error> {
+    let sidecar = format!("{}.sha512", source_path);
     if allow_unverified {
-        eprintln!("warning: importing {} without signed checksum verification; use --allow-unverified only for trusted legacy exports.", path);
-        audit_log("verify-import-checksum", &[("path", path), ("result", "unverified")]);
+        eprintln!("warning: importing {} without signed checksum verification; use --allow-unverified only for trusted legacy exports.", source_path);
+        audit_log("verify-import-checksum", &[("path", source_path), ("result", "unverified")]);
         return Ok(());
     }
     if !Path::new(&sidecar).is_file() {
@@ -514,25 +515,37 @@ fn verify_snapshot_checksum(path: &str, allow_unverified: bool) -> Result<(), Er
                                       audit_escape(&sidecar))));
     }
 
-    // Only trust a checksum whose signature verifies against the local key store.
-    verify_snapshot_signature(&sidecar)?;
+    // Pin both the checksum sidecar and the stream before verification. The
+    // signature is checked against the pinned sidecar, and the digest is
+    // computed over the pinned stream, so later path swaps cannot affect the
+    // data that btrfs receive will consume.
+    let sidecar_bytes = std::fs::read(&sidecar)?;
+    let pin_dir = TempDir::new()?;
+    let pinned_sidecar = pin_dir.path().join("checksum.sha512");
+    let pinned_sidecar_str = pinned_sidecar.to_string_lossy().into_owned();
+    let mut pinned = OpenOptions::new().write(true).create_new(true).mode(0o600)
+                                       .open(&pinned_sidecar)?;
+    pinned.write_all(&sidecar_bytes)?;
+    drop(pinned);
 
-    let expected_line = read_to_string(&sidecar)?;
+    verify_snapshot_signature(&sidecar, &pinned_sidecar_str)?;
+
+    let expected_line = read_to_string(&pinned_sidecar)?;
     let expected = expected_line.split_whitespace().next().unwrap_or("");
     if !valid_sha512(expected) {
         return Err(Error::new(ErrorKind::InvalidData,
                               format!("Invalid checksum file {}.", audit_escape(&sidecar))));
     }
 
-    let actual = checksum_for(path)?;
+    let actual = checksum_for(data_path)?;
     if !expected.eq_ignore_ascii_case(&actual) {
-        audit_log("verify-import-checksum", &[("path", path), ("result", "mismatch")]);
+        audit_log("verify-import-checksum", &[("path", source_path), ("result", "mismatch")]);
         return Err(Error::new(ErrorKind::InvalidData,
                               format!("Checksum mismatch for {}. Expected {}, got {}. The export may be corrupt or tampered with.",
-                                      audit_escape(path), expected, actual)));
+                                      audit_escape(source_path), expected, actual)));
     }
 
-    audit_log("verify-import-checksum", &[("path", path), ("result", "verified")]);
+    audit_log("verify-import-checksum", &[("path", source_path), ("result", "verified")]);
     Ok(())
 }
 
@@ -2550,6 +2563,24 @@ pub fn immutability_enable(snapshot: &str) -> Result<(), Error> {
     Ok(())
 }
 
+// Copy the import stream into the receive temp directory before verification.
+// btrfs receive will consume this pinned copy instead of reopening the caller's
+// path, closing the verify/receive TOCTOU window.
+fn stage_import_stream(path: &str, tmp_dir: &TempDir) -> Result<String, Error> {
+    let staged_name = if path.ends_with(".zst") {
+        "import-stream.zst"
+    } else {
+        "import-stream"
+    };
+    let staged = tmp_dir.path().join(staged_name);
+    let mut input = File::open(path)?;
+    let mut output = OpenOptions::new().write(true).create_new(true).mode(0o600)
+                                       .open(&staged)?;
+    std::io::copy(&mut input, &mut output)?;
+    output.sync_all()?;
+    Ok(staged.to_string_lossy().into_owned())
+}
+
 // Receive an exported snapshot stream, decompressing zstd exports on the fly
 fn receive_snapshot(path: &str, tmp_path: &str) -> Result<(), Error> {
     #[cfg(feature = "btrfs")]
@@ -2602,7 +2633,8 @@ pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir, allow_un
         return Err(Error::new(ErrorKind::NotFound, format!("The snapshot {} doesn't exist.", path)));
 
     } else {
-        verify_snapshot_checksum(path, allow_unverified)?;
+        let staged_path = stage_import_stream(path, tmp_dir)?;
+        verify_snapshot_checksum_for(path, &staged_path, allow_unverified)?;
 
         // AtomicBool flag to track if the process was interrupted
         let interrupted = Arc::new(AtomicBool::new(false));
@@ -2621,7 +2653,7 @@ pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir, allow_un
 
         // Receive snapshot
         println!("Receiving a snapshot, please wait...");
-        receive_snapshot(path, &tmp_path)?;
+        receive_snapshot(&staged_path, &tmp_path)?;
 
         // Get snapshot name
         let export_snapshot = get_import_snapshot_name(tmp_dir.path())?;
@@ -2783,7 +2815,8 @@ pub fn import_base(path: &str, tmp_dir: &TempDir, allow_unverified: bool) -> Res
         return Err(Error::new(ErrorKind::NotFound, format!("The snapshot {} doesn't exist.", path)));
 
     } else if yes_no(msg) {
-        verify_snapshot_checksum(path, allow_unverified)?;
+        let staged_path = stage_import_stream(path, tmp_dir)?;
+        verify_snapshot_checksum_for(path, &staged_path, allow_unverified)?;
 
         // AtomicBool flag to track if the process was interrupted
         let interrupted = Arc::new(AtomicBool::new(false));
@@ -2802,7 +2835,7 @@ pub fn import_base(path: &str, tmp_dir: &TempDir, allow_unverified: bool) -> Res
 
         // Receive snapshot
         println!("Receiving a snapshot, please wait...");
-        receive_snapshot(path, &tmp_path)?;
+        receive_snapshot(&staged_path, &tmp_path)?;
 
         // Get snapshot name
         let snapshot = get_import_snapshot_name(tmp_dir.path())?;
