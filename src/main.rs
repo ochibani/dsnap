@@ -27,6 +27,11 @@ fn failure() -> ExitCode {
     ExitCode::FAILURE
 }
 
+fn audit_cli_invocation(subcommand: &str) {
+    let argv = format!("{:?}", std::env::args().skip(1).collect::<Vec<_>>());
+    audit_log(subcommand, &[("argv", argv.as_str())]);
+}
+
 // Select Bootloader
 #[cfg(feature = "grub")]
 pub mod grub;
@@ -70,6 +75,15 @@ fn main() -> ExitCode {
             Ok(false) => {
         // Call cli matches
         let matches = cli().get_matches();
+        // Keep informational commands quiet; only audit and warn before
+        // operations that can change system or boot state.
+        let subcommand = matches.subcommand_name().unwrap_or("unknown");
+        if !matches!(matches.subcommand_name(),
+                     None | Some("current" | "difference" | "last-update" | "list"
+                                 | "subvolumes" | "tree" | "version" | "whichsnap" | "whichtmp")) {
+            audit_cli_invocation(subcommand);
+            print_boot_security_warnings();
+        }
         // Call relevant functions
         match matches.subcommand() {
             // Auto upgrade

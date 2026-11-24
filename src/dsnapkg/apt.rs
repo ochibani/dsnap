@@ -1,6 +1,7 @@
-use crate::{check_profile, chr_delete, chroot_exec, cp_reflink, cp_reflink_no_clobber, get_tmp, grub,
-            has_systemd, is_system_locked, is_system_pkg, post_transactions, prepare, profile_write,
-            remove_dir_content, sync_time};
+use crate::{audit_log, check_profile, chr_delete, chroot_exec, cp_reflink, cp_reflink_no_clobber,
+            get_tmp, grub, has_systemd, is_system_locked, is_system_pkg, post_transactions, prepare,
+            profile_write, remove_dir_content, run_chroot, sync_time, validate_package_specs,
+            validate_service_names, validate_system_config_path};
 
 use configparser::ini::{Ini, WriteOptions};
 use rustix::path::Arg;
@@ -24,20 +25,20 @@ pub fn auto_upgrade(snapshot: &str) -> Result<(), Error> {
         prepare(snapshot)?;
 
 
-        // Use apt
-        let options = "-o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\"";
-        let apt_update = "apt-get update";
-        let apt_upgrade = format!("apt-get {} -y upgrade", options);
-        let update = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,apt_update))
-                                       .status()?;
+        // Use apt with argv, never through a shell
+        let root = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
+        let update_ok = run_chroot(&root, "apt-get", &["update"]).is_ok();
 
         // Disable interactive post-install scripts for this command only
-        let upgrade = Command::new("sh").arg("-c")
-                                        .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,apt_upgrade))
-                                        .env("DEBIAN_FRONTEND", "noninteractive")
-                                        .status()?;
-        if update.success() && upgrade.success() {
+        let upgrade_ok = Command::new("chroot")
+            .arg(&root)
+            .args(["apt-get", "-y",
+                   "-o", "Dpkg::Options::=--force-confdef",
+                   "-o", "Dpkg::Options::=--force-confold", "upgrade"])
+            .env("DEBIAN_FRONTEND", "noninteractive")
+            .status()?
+            .success();
+        if update_ok && upgrade_ok {
             post_transactions(snapshot)?;
             let mut file = OpenOptions::new().write(true)
                                              .create(true)
@@ -68,13 +69,15 @@ pub fn auto_upgrade(snapshot: &str) -> Result<(), Error> {
 
 // Reinstall base packages in snapshot
 pub fn bootstrap(snapshot: &str) -> Result<(), Error> {
-    let packages = "ca-certificates";
     let release = code_name(snapshot);
     let target_path = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
-    let bootstrap_cmd = format!("mmdebstrap --include='{}' {} {}", packages,release,target_path);
 
     // Bootstrap command
-    let excode = Command::new("sh").arg("-c").arg(bootstrap_cmd).status()?;
+    let excode = Command::new("mmdebstrap")
+        .arg("--include=ca-certificates")
+        .arg(release)
+        .arg(target_path)
+        .status()?;
 
     if !excode.success() {
         return Err(Error::new(ErrorKind::Other,
@@ -144,6 +147,9 @@ pub fn code_name(snapshot: &str) -> String {
 
 // Install atomic-operation
 pub fn install_package_helper(snapshot:&str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
+    validate_package_specs(pkgs)?;
+    let packages = pkgs.join(" ");
+    audit_log("install-packages", &[("snapshot", snapshot), ("packages", packages.as_str())]);
     prepare(snapshot)?;
     //Profile configurations
     let cfile = format!("/.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot);
@@ -156,11 +162,8 @@ pub fn install_package_helper(snapshot:&str, pkgs: &Vec<String>, noconfirm: bool
     profconf.load(&cfile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
 
     // Run update before install
-    let apt_update = "apt-get update";
-    let apt_update = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,apt_update))
-                                       .status()?;
-    if !apt_update.success() {
+    let root = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
+    if run_chroot(&root, "apt-get", &["update"]).is_err() {
         return Err(Error::new(ErrorKind::Other,
                               "Failed to run apt-get update"));
     }
@@ -172,18 +175,14 @@ pub fn install_package_helper(snapshot:&str, pkgs: &Vec<String>, noconfirm: bool
                 pkgs_list.push(pkg.to_string());
             }
         }
-        // Nocomfirm flag
-        let install_args = if noconfirm {
-            format!("apt-get install -y --no-install-recommends {}", pkg)
-        } else {
-            format!("apt-get install --no-install-recommends {}", pkg)
-        };
-
-        // Install packages using apt
-        let apt_install = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,&install_args))
-                                       .status()?;
-        if !apt_install.success() {
+        // Install packages using apt without involving a shell
+        let mut install_args = vec!["install"];
+        if noconfirm {
+            install_args.push("-y");
+        }
+        install_args.push("--no-install-recommends");
+        install_args.push(pkg.as_str());
+        if run_chroot(&root, "apt-get", &install_args).is_err() {
             return Err(Error::new(ErrorKind::Other,
                                   format!("Failed to install {}", pkg)));
         // Add to profile-packages if not system package
@@ -202,32 +201,35 @@ pub fn install_package_helper(snapshot:&str, pkgs: &Vec<String>, noconfirm: bool
 
 // Install atomic-operation
 pub fn install_package_helper_chroot(snapshot:&str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
-    let pkg_list = format!("{pkgs:?}");
-    let install_args = if noconfirm {
-        let options = "-o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\"";
-        format!("apt-get install {} -y --no-install-recommends {}", pkg_list.replace(&['[', ']', ',', '\"'][..], ""), options)
-    } else {
-        format!("apt-get install --no-install-recommends {}", pkg_list.replace(&['[', ']', ',', '\"'][..], ""))
-    };
+    validate_package_specs(pkgs)?;
+    let packages = pkgs.join(" ");
+    audit_log("install-packages-chroot", &[("snapshot", snapshot), ("packages", packages.as_str())]);
+    let mut install_args = vec!["install"];
+    for pkg in pkgs {
+        install_args.push(pkg.as_str());
+    }
+    install_args.push("--no-install-recommends");
+    if noconfirm {
+        install_args.extend_from_slice(&["-y",
+                                         "-o", "Dpkg::Options::=--force-confdef",
+                                         "-o", "Dpkg::Options::=--force-confold"]);
+    }
 
+    let root = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
     // APT update
-    let apt_update = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} apt-get update", snapshot))
-                                       .status()?;
-    if !apt_update.success() {
+    if run_chroot(&root, "apt-get", &["update"]).is_err() {
         return Err(Error::new(ErrorKind::Other,
                               "Failed to run apt-get update"));
     }
 
     // APT install
-    let mut cmd = Command::new("sh");
-    cmd.arg("-c")
-       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,install_args));
+    let mut cmd = Command::new("chroot");
+    cmd.arg(&root);
     if noconfirm {
-        cmd.env("DEBIAN_FRONTEND", "noninteractive");
+        cmd.arg("env").arg("DEBIAN_FRONTEND=noninteractive");
     }
-    let apt_install = cmd.status()?;
-    if !apt_install.success() {
+    cmd.arg("apt-get").args(&install_args);
+    if !cmd.status()?.success() {
         return Err(Error::new(ErrorKind::Other,
                               "Failed to install package(s)."));
     }
@@ -236,29 +238,24 @@ pub fn install_package_helper_chroot(snapshot:&str, pkgs: &Vec<String>, noconfir
 
 // Install atomic-operation in live snapshot
 pub fn install_package_helper_live(_snapshot: &str, tmp: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
+    validate_package_specs(pkgs)?;
+    let packages = pkgs.join(" ");
+    audit_log("install-packages-live", &[("snapshot", tmp), ("packages", packages.as_str())]);
     // APT update
-    let apt_update = "apt-get update";
-    let apt_update = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-{} {}", tmp,apt_update))
-                                       .status()?;
-    if !apt_update.success() {
+    let root = format!("/.snapshots/rootfs/snapshot-{}", tmp);
+    if run_chroot(&root, "apt-get", &["update"]).is_err() {
         return Err(Error::new(ErrorKind::Other,
-                              format!("Failed to run apt-get update")));
+                              "Failed to run apt-get update"));
     }
 
     for pkg in pkgs {
-        let install_args = if noconfirm {
-            format!("apt-get install -y --no-install-recommends {}", pkg)
-        } else {
-            format!("apt-get install --no-install-recommends {}", pkg)
-        };
-
-        // APT install
-        let apt_install = Command::new("sh").arg("-c")
-                                            .arg(format!("chroot /.snapshots/rootfs/snapshot-{} {}", tmp,install_args))
-                                            .status()?;
-
-        if !apt_install.success() {
+        let mut install_args = vec!["install"];
+        if noconfirm {
+            install_args.push("-y");
+        }
+        install_args.push("--no-install-recommends");
+        install_args.push(pkg.as_str());
+        if run_chroot(&root, "apt-get", &install_args).is_err() {
             return Err(Error::new(ErrorKind::Other,
                                   format!("Failed to install {}", pkg)));
         }
@@ -307,9 +304,10 @@ pub fn lockpkg(snapshot:&str, profconf: &Ini) -> Result<(), Error> {
 
     // Release holds that are no longer in system-packages so the hold list
     // mirrors the profile exactly
-    let held = Command::new("sh").arg("-c")
-                                 .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} apt-mark showhold", snapshot))
-                                 .output()?;
+    let root = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
+    let held = Command::new("chroot").arg(&root)
+                                     .args(["apt-mark", "showhold"])
+                                     .output()?;
     if !held.status.success() {
         return Err(Error::new(ErrorKind::Other, "Failed to list held packages."));
     }
@@ -318,10 +316,9 @@ pub fn lockpkg(snapshot:&str, profconf: &Ini) -> Result<(), Error> {
         if pkg.is_empty() || system_pkgs.iter().any(|s| s == pkg) {
             continue;
         }
-        let excode = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} apt-mark unhold {}", snapshot, pkg))
-                                       .status()?;
-        if !excode.success() {
+        if !Command::new("chroot").arg(&root)
+                                  .args(["apt-mark", "unhold", pkg])
+                                  .status()?.success() {
             return Err(Error::new(ErrorKind::Other,
                                   format!("Failed to unhold package {}.", pkg)));
         }
@@ -331,11 +328,14 @@ pub fn lockpkg(snapshot:&str, profconf: &Ini) -> Result<(), Error> {
     // dnf's protected.d: it prevents the package from being automatically
     // installed, upgraded or removed
     if !system_pkgs.is_empty() {
-        let pkgs = system_pkgs.join(" ");
-        let excode = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} apt-mark hold {}", snapshot, pkgs))
-                                       .status()?;
-        if !excode.success() {
+        let mut hold_args = vec!["hold"];
+        for pkg in &system_pkgs {
+            hold_args.push(pkg.as_str());
+        }
+        if !Command::new("chroot").arg(&root)
+                                  .arg("apt-mark")
+                                  .args(&hold_args)
+                                  .status()?.success() {
             return Err(Error::new(ErrorKind::Other, "Failed to hold system packages."));
         }
     }
@@ -419,12 +419,14 @@ pub fn refresh_helper(snapshot: &str) -> Result<(), Error> {
 
 // Disable service(s)
 pub fn service_disable(snapshot: &str, services: &Vec<String>, chr: &str) -> Result<(), Error> {
+    validate_service_names(services)?;
+    let names = services.join(" ");
+    audit_log("service-disable", &[("snapshot", snapshot), ("services", names.as_str())]);
     for service in services {
         // Systemd
         if has_systemd(snapshot, chr)? {
             let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-{}{}", chr,snapshot))
-                                               .arg("systemctl")
-                                               .arg("disable")
+                                               .args(["systemctl", "disable", "--"])
                                                .arg(&service).status()?;
             if !excode.success() {
                 return Err(Error::new(ErrorKind::Other,
@@ -437,12 +439,14 @@ pub fn service_disable(snapshot: &str, services: &Vec<String>, chr: &str) -> Res
 
 // Enable service(s)
 pub fn service_enable(snapshot: &str, services: &Vec<String>, chr: &str) -> Result<(), Error> {
+    validate_service_names(services)?;
+    let names = services.join(" ");
+    audit_log("service-enable", &[("snapshot", snapshot), ("services", names.as_str())]);
     for service in services {
         // Systemd
         if has_systemd(snapshot, chr)? {
             let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-{}{}", chr,snapshot))
-                                               .arg("systemctl")
-                                               .arg("enable")
+                                               .args(["systemctl", "enable", "--"])
                                                .arg(&service).status()?;
             if !excode.success() {
                 return Err(Error::new(ErrorKind::Other,
@@ -547,6 +551,7 @@ pub fn system_config(snapshot: &str, profconf: &Ini) -> Result<(), Error> {
     if let Some(section) = profconf.get_map().and_then(|map| map.get("system-configuration").cloned()) {
         let mut system_conf: Vec<String> = Vec::new();
         for path in section.keys() {
+            validate_system_config_path(path)?;
             // Check if a file or directory exists
             if !metadata(path).is_ok() {
                 system_conf.push(path.to_string());
@@ -580,6 +585,9 @@ pub fn tree_sync_helper(s_f: &str, s_t: &str, chr: &str) -> Result<(), Error>  {
 
 // Uninstall package(s) atomic-operation
 pub fn uninstall_package_helper(snapshot: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
+    validate_package_specs(pkgs)?;
+    let packages = pkgs.join(" ");
+    audit_log("uninstall-packages", &[("snapshot", snapshot), ("packages", packages.as_str())]);
     // Profile configurations
     let cfile = format!("/.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot);
     let mut profconf = Ini::new_cs();
@@ -628,17 +636,17 @@ pub fn uninstall_package_helper(snapshot: &str, pkgs: &Vec<String>, noconfirm: b
 
 // Uninstall package(s) atomic-operation
 pub fn uninstall_package_helper_chroot(snapshot: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
+    validate_package_specs(pkgs)?;
+    let packages = pkgs.join(" ");
+    audit_log("uninstall-packages-chroot", &[("snapshot", snapshot), ("packages", packages.as_str())]);
+    let root = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
     for pkg in pkgs {
-        let uninstall_args = if noconfirm {
-            "apt-get remove -y"
-        } else {
-            "apt-get remove"
-        };
-
-        let excode = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {} {}", snapshot,uninstall_args, pkg)).status()?;
-
-        if !excode.success() {
+        let mut uninstall_args = vec!["remove"];
+        if noconfirm {
+            uninstall_args.push("-y");
+        }
+        uninstall_args.push(pkg.as_str());
+        if run_chroot(&root, "apt-get", &uninstall_args).is_err() {
             return Err(Error::new(ErrorKind::Other,
                                   format!("Failed to uninstall {}", pkg)));
         }
@@ -648,6 +656,9 @@ pub fn uninstall_package_helper_chroot(snapshot: &str, pkgs: &Vec<String>, nocon
 
 // Uninstall package(s) atomic-operation live snapshot
 pub fn uninstall_package_helper_live(tmp: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
+    validate_package_specs(pkgs)?;
+    let packages = pkgs.join(" ");
+    audit_log("uninstall-packages-live", &[("snapshot", tmp), ("packages", packages.as_str())]);
     for pkg in pkgs {
         let uninstall_args: Vec<&str> = if noconfirm {
             vec!["apt-get", "remove", "-y"]
@@ -672,27 +683,29 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
     // Prepare snapshot
     prepare(snapshot)?;
 
-    let upgrade_args = if noconfirm {
-        // Avoid interactive conffile prompts during noninteractive upgrades
-        "env DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade"
-    } else {
-        "apt-get upgrade"
-    };
-
+    let root = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
     // Run apt update
-    let apt_update = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} apt-get update", snapshot))
-                                       .status()?;
-    if !apt_update.success() {
+    if run_chroot(&root, "apt-get", &["update"]).is_err() {
         return Err(Error::new(ErrorKind::Other,
                               "Failed to run apt-get update"));
     }
 
     // Run apt upgrade
-    let apt_upgrade = Command::new("sh").arg("-c")
-                                        .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,upgrade_args))
-                                        .status()?;
-    if !apt_upgrade.success() {
+    let mut upgrade_args = Vec::new();
+    if noconfirm {
+        // Avoid interactive conffile prompts during noninteractive upgrades
+        upgrade_args.extend_from_slice(&["env", "DEBIAN_FRONTEND=noninteractive"]);
+    }
+    upgrade_args.extend_from_slice(&["apt-get"]);
+    if noconfirm {
+        upgrade_args.extend_from_slice(&["-y",
+                                         "-o", "Dpkg::Options::=--force-confdef",
+                                         "-o", "Dpkg::Options::=--force-confold"]);
+    }
+    upgrade_args.push("upgrade");
+    let mut cmd = Command::new("chroot");
+    cmd.arg(&root).args(&upgrade_args);
+    if !cmd.status()?.success() {
         return Err(Error::new(ErrorKind::Other,
                               format!("Failed to upgrade snapshot {}.", snapshot)));
     }
@@ -701,27 +714,29 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
 
 // Live upgrade snapshot atomic-operation
 pub fn upgrade_helper_live(tmp: &str, noconfirm: bool) -> Result<(), Error> {
-    let upgrade_args = if noconfirm {
-        // Avoid interactive conffile prompts during noninteractive upgrades
-        "env DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade"
-    } else {
-        "apt-get upgrade"
-    };
-
+    let root = format!("/.snapshots/rootfs/snapshot-{}", tmp);
     // Run apt update
-    let apt_update = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-{} apt-get update", tmp))
-                                       .status()?;
-    if !apt_update.success() {
+    if run_chroot(&root, "apt-get", &["update"]).is_err() {
         return Err(Error::new(ErrorKind::Other,
                               "Failed to run apt-get update"));
     }
 
     // Run apt upgrade
-    let excode = Command::new("sh").arg("-c")
-                                   .arg(format!("chroot /.snapshots/rootfs/snapshot-{} {}", tmp,upgrade_args))
-                                   .status()?;
-    if !excode.success() {
+    let mut upgrade_args = Vec::new();
+    if noconfirm {
+        // Avoid interactive conffile prompts during noninteractive upgrades
+        upgrade_args.extend_from_slice(&["env", "DEBIAN_FRONTEND=noninteractive"]);
+    }
+    upgrade_args.push("apt-get");
+    if noconfirm {
+        upgrade_args.extend_from_slice(&["-y",
+                                         "-o", "Dpkg::Options::=--force-confdef",
+                                         "-o", "Dpkg::Options::=--force-confold"]);
+    }
+    upgrade_args.push("upgrade");
+    let mut cmd = Command::new("chroot");
+    cmd.arg(&root).args(&upgrade_args);
+    if !cmd.status()?.success() {
         return Err(Error::new(ErrorKind::Other,
                               "Failed to upgrade current/live snapshot."));
     }

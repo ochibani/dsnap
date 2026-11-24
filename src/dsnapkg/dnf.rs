@@ -1,6 +1,7 @@
-use crate::{check_profile, chr_delete, chroot_exec, cp_reflink, cp_reflink_no_clobber, get_tmp, grub,
-            has_systemd, is_system_locked, is_system_pkg, post_transactions, prepare, profile_write,
-            remove_dir_content, sync_time};
+use crate::{audit_log, check_profile, chr_delete, chroot_exec, cp_reflink, cp_reflink_no_clobber,
+            get_tmp, grub, has_systemd, is_system_locked, is_system_pkg, post_transactions, prepare,
+            profile_write, remove_dir_content, run_chroot, sync_time, validate_package_specs,
+            validate_service_names, validate_system_config_path};
 
 use configparser::ini::{Ini, WriteOptions};
 use rustix::path::Arg;
@@ -23,11 +24,11 @@ pub fn auto_upgrade(snapshot: &str) -> Result<(), Error> {
         // Prepare snapshot
         prepare(snapshot)?;
 
-        // Use dnf
-        let dnf_upgrade = "dnf -y upgrade --refresh";
-        let excode = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,dnf_upgrade))
-                                       .status()?;
+        // Use dnf with argv, never through a shell
+        let root = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
+        let excode = Command::new("chroot").arg(&root)
+                                           .args(["dnf", "-y", "upgrade", "--refresh"])
+                                           .status()?;
         if excode.success() {
             post_transactions(snapshot)?;
             let mut file = OpenOptions::new().write(true)
@@ -59,13 +60,15 @@ pub fn auto_upgrade(snapshot: &str) -> Result<(), Error> {
 
 // Reinstall base packages in snapshot
 pub fn bootstrap(snapshot: &str) -> Result<(), Error> {
-    let packages = "basesystem dnf glibc-all-langpacks";
     let release = code_name(snapshot);
     let target_path = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
-    let bootstrap_cmd = format!("dnf --installroot='{}' install -y {} --releasever='{}'", target_path,packages,release);
 
     // Bootstrap command
-    let excode = Command::new("sh").arg("-c").arg(bootstrap_cmd).status()?;
+    let excode = Command::new("dnf")
+        .arg(format!("--installroot={}", target_path))
+        .args(["install", "-y", "basesystem", "dnf", "glibc-all-langpacks"])
+        .arg(format!("--releasever={}", release))
+        .status()?;
 
     if !excode.success() {
         return Err(Error::new(ErrorKind::Other,
@@ -119,6 +122,9 @@ pub fn code_name(snapshot: &str) -> String {
 
 // Install atomic-operation
 pub fn install_package_helper(snapshot:&str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
+    validate_package_specs(pkgs)?;
+    let packages = pkgs.join(" ");
+    audit_log("install-packages", &[("snapshot", snapshot), ("packages", packages.as_str())]);
     prepare(snapshot)?;
     //Profile configurations
     let cfile = format!("/.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot);
@@ -137,18 +143,15 @@ pub fn install_package_helper(snapshot:&str, pkgs: &Vec<String>, noconfirm: bool
                 pkgs_list.push(pkg.to_string());
             }
         }
-        // Nocomfirm flag
-        let install_args = if noconfirm {
-            format!("dnf install -y --setopt install_weak_deps=False --refresh {}", pkg)
-        } else {
-            format!("dnf install --setopt install_weak_deps=False --refresh {}", pkg)
-        };
-
-        // Install packages using dnf
-        let dnf_install = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,&install_args))
-                                       .status()?;
-        if !dnf_install.success() {
+        // Install packages using dnf without involving a shell
+        let mut install_args = vec!["install"];
+        if noconfirm {
+            install_args.push("-y");
+        }
+        install_args.extend_from_slice(&["--setopt", "install_weak_deps=False", "--refresh"]);
+        install_args.push(pkg.as_str());
+        let root = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
+        if run_chroot(&root, "dnf", &install_args).is_err() {
             return Err(Error::new(ErrorKind::Other,
                                   format!("Failed to install {}", pkg)));
         // Add to profile-packages if not system package
@@ -167,19 +170,20 @@ pub fn install_package_helper(snapshot:&str, pkgs: &Vec<String>, noconfirm: bool
 
 // Install atomic-operation
 pub fn install_package_helper_chroot(snapshot:&str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
-    let pkg_list = format!("{pkgs:?}");
-    let install_args = if noconfirm {
-        format!("dnf install -y --setopt install_weak_deps=False --refresh {}", pkg_list.replace(&['[', ']', ',', '\"'][..], ""))
-    } else {
-        format!("dnf install --setopt install_weak_deps=False --refresh {}", pkg_list.replace(&['[', ']', ',', '\"'][..], ""))
-    };
+    validate_package_specs(pkgs)?;
+    let packages = pkgs.join(" ");
+    audit_log("install-packages-chroot", &[("snapshot", snapshot), ("packages", packages.as_str())]);
+    let mut install_args = vec!["install"];
+    if noconfirm {
+        install_args.push("-y");
+    }
+    install_args.extend_from_slice(&["--setopt", "install_weak_deps=False", "--refresh"]);
+    for pkg in pkgs {
+        install_args.push(pkg.as_str());
+    }
 
-    // DNF install
-    let dnf_install = Command::new("sh").arg("-c")
-                                        .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,install_args))
-                                        .status()?;
-
-    if !dnf_install.success() {
+    let root = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
+    if run_chroot(&root, "dnf", &install_args).is_err() {
         return Err(Error::new(ErrorKind::Other,
                               "Failed to install package(s)."));
     }
@@ -188,19 +192,18 @@ pub fn install_package_helper_chroot(snapshot:&str, pkgs: &Vec<String>, noconfir
 
 // Install atomic-operation in live snapshot
 pub fn install_package_helper_live(_snapshot: &str, tmp: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
+    validate_package_specs(pkgs)?;
+    let packages = pkgs.join(" ");
+    audit_log("install-packages-live", &[("snapshot", tmp), ("packages", packages.as_str())]);
+    let root = format!("/.snapshots/rootfs/snapshot-{}", tmp);
     for pkg in pkgs {
-        let install_args = if noconfirm {
-            format!("dnf install -y --setopt install_weak_deps=False --refresh {}", pkg)
-        } else {
-            format!("dnf install --setopt install_weak_deps=False --refresh {}", pkg)
-        };
-
-        // DNF install
-        let dnf_install = Command::new("sh").arg("-c")
-                                            .arg(format!("chroot /.snapshots/rootfs/snapshot-{} {}", tmp,install_args))
-                                            .status()?;
-
-        if !dnf_install.success() {
+        let mut install_args = vec!["install"];
+        if noconfirm {
+            install_args.push("-y");
+        }
+        install_args.extend_from_slice(&["--setopt", "install_weak_deps=False", "--refresh"]);
+        install_args.push(pkg.as_str());
+        if run_chroot(&root, "dnf", &install_args).is_err() {
             return Err(Error::new(ErrorKind::Other,
                                   format!("Failed to install {}", pkg)));
         }
@@ -330,12 +333,14 @@ pub fn refresh_helper(snapshot: &str) -> Result<(), Error> {
 
 // Disable service(s)
 pub fn service_disable(snapshot: &str, services: &Vec<String>, chr: &str) -> Result<(), Error> {
+    validate_service_names(services)?;
+    let names = services.join(" ");
+    audit_log("service-disable", &[("snapshot", snapshot), ("services", names.as_str())]);
     for service in services {
         // Systemd
         if has_systemd(snapshot, chr)? {
             let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-{}{}", chr,snapshot))
-                                               .arg("systemctl")
-                                               .arg("disable")
+                                               .args(["systemctl", "disable", "--"])
                                                .arg(&service).status()?;
             if !excode.success() {
                 return Err(Error::new(ErrorKind::Other,
@@ -348,12 +353,14 @@ pub fn service_disable(snapshot: &str, services: &Vec<String>, chr: &str) -> Res
 
 // Enable service(s)
 pub fn service_enable(snapshot: &str, services: &Vec<String>, chr: &str) -> Result<(), Error> {
+    validate_service_names(services)?;
+    let names = services.join(" ");
+    audit_log("service-enable", &[("snapshot", snapshot), ("services", names.as_str())]);
     for service in services {
         // Systemd
         if has_systemd(snapshot, chr)? {
             let excode = Command::new("chroot").arg(format!("/.snapshots/rootfs/snapshot-{}{}", chr,snapshot))
-                                               .arg("systemctl")
-                                               .arg("enable")
+                                               .args(["systemctl", "enable", "--"])
                                                .arg(&service).status()?;
             if !excode.success() {
                 return Err(Error::new(ErrorKind::Other,
@@ -446,6 +453,7 @@ pub fn system_config(snapshot: &str, profconf: &Ini) -> Result<(), Error> {
     if let Some(section) = profconf.get_map().and_then(|map| map.get("system-configuration").cloned()) {
         let mut system_conf: Vec<String> = Vec::new();
         for path in section.keys() {
+            validate_system_config_path(path)?;
             // Check if a file or directory exists
             if !metadata(path).is_ok() {
                 system_conf.push(path.to_string());
@@ -478,6 +486,9 @@ pub fn tree_sync_helper(s_f: &str, s_t: &str, chr: &str) -> Result<(), Error>  {
 
 // Uninstall package(s) atomic-operation
 pub fn uninstall_package_helper(snapshot: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
+    validate_package_specs(pkgs)?;
+    let packages = pkgs.join(" ");
+    audit_log("uninstall-packages", &[("snapshot", snapshot), ("packages", packages.as_str())]);
     // Profile configurations
     let cfile = format!("/.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot);
     let mut profconf = Ini::new_cs();
@@ -526,17 +537,17 @@ pub fn uninstall_package_helper(snapshot: &str, pkgs: &Vec<String>, noconfirm: b
 
 // Uninstall package(s) atomic-operation
 pub fn uninstall_package_helper_chroot(snapshot: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
+    validate_package_specs(pkgs)?;
+    let packages = pkgs.join(" ");
+    audit_log("uninstall-packages-chroot", &[("snapshot", snapshot), ("packages", packages.as_str())]);
+    let root = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
     for pkg in pkgs {
-        let uninstall_args = if noconfirm {
-            "dnf remove -y"
-        } else {
-            "dnf remove"
-        };
-
-        let excode = Command::new("sh").arg("-c")
-                                       .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {} {}", snapshot,uninstall_args, pkg)).status()?;
-
-        if !excode.success() {
+        let mut uninstall_args = vec!["remove"];
+        if noconfirm {
+            uninstall_args.push("-y");
+        }
+        uninstall_args.push(pkg.as_str());
+        if run_chroot(&root, "dnf", &uninstall_args).is_err() {
             return Err(Error::new(ErrorKind::Other,
                                   format!("Failed to uninstall {}", pkg)));
         }
@@ -546,6 +557,9 @@ pub fn uninstall_package_helper_chroot(snapshot: &str, pkgs: &Vec<String>, nocon
 
 // Uninstall package(s) atomic-operation live snapshot
 pub fn uninstall_package_helper_live(tmp: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
+    validate_package_specs(pkgs)?;
+    let packages = pkgs.join(" ");
+    audit_log("uninstall-packages-live", &[("snapshot", tmp), ("packages", packages.as_str())]);
     for pkg in pkgs {
         let uninstall_args: Vec<&str> = if noconfirm {
             vec!["dnf", "remove", "-y"]
@@ -570,17 +584,15 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
     // Prepare snapshot
     prepare(snapshot)?;
 
-    let upgrade_args = if noconfirm {
-        "dnf upgrade -y --refresh"
-    } else {
-        "dnf upgrade --refresh"
-    };
+    let mut upgrade_args = vec!["upgrade"];
+    if noconfirm {
+        upgrade_args.push("-y");
+    }
+    upgrade_args.push("--refresh");
 
     // Run dnf upgrade
-    let dnf_upgrade = Command::new("sh").arg("-c")
-                                        .arg(format!("chroot /.snapshots/rootfs/snapshot-chr{} {}", snapshot,upgrade_args))
-                                        .status()?;
-    if !dnf_upgrade.success() {
+    let root = format!("/.snapshots/rootfs/snapshot-chr{}", snapshot);
+    if run_chroot(&root, "dnf", &upgrade_args).is_err() {
         return Err(Error::new(ErrorKind::Other,
                               format!("Failed to upgrade snapshot {}.", snapshot)));
     }
@@ -589,17 +601,15 @@ pub fn upgrade_helper(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
 
 // Live upgrade snapshot atomic-operation
 pub fn upgrade_helper_live(tmp: &str, noconfirm: bool) -> Result<(), Error> {
-    let upgrade_args = if noconfirm {
-        "dnf upgrade -y --refresh"
-    } else {
-        "dnf upgrade --refresh"
-    };
+    let mut upgrade_args = vec!["upgrade"];
+    if noconfirm {
+        upgrade_args.push("-y");
+    }
+    upgrade_args.push("--refresh");
 
     // Run dnf upgrade
-    let excode = Command::new("sh").arg("-c")
-                                   .arg(format!("chroot /.snapshots/rootfs/snapshot-{} {}", tmp,upgrade_args))
-                                   .status()?;
-    if !excode.success() {
+    let root = format!("/.snapshots/rootfs/snapshot-{}", tmp);
+    if run_chroot(&root, "dnf", &upgrade_args).is_err() {
         return Err(Error::new(ErrorKind::Other,
                               "Failed to upgrade current/live snapshot."));
     }

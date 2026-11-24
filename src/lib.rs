@@ -2,7 +2,7 @@ mod dsnapkg;
 pub mod detect_distro;
 mod tree;
 
-use chrono::Local;
+use chrono::{Local, NaiveDateTime};
 use configparser::ini::{Ini, WriteOptions};
 use ctrlc;
 use curl::easy::{Easy, HttpVersion, List};
@@ -12,9 +12,10 @@ use partition_identity::{PartitionID, PartitionSource};
 use proc_mounts::MountIter;
 use rustix::path::Arg;
 use std::collections::HashMap;
-use std::fs::{copy, DirBuilder, File, OpenOptions, read_dir, read_to_string};
+use std::fs::{copy, DirBuilder, File, OpenOptions, Permissions, read_dir, read_to_string, symlink_metadata};
 use std::io::{BufRead, BufReader, Error, ErrorKind, Read, stdin, Write};
-use std::path::{Path, PathBuf};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -64,11 +65,259 @@ fn allow_dir_mut(mount_path: &str) -> bool {
     if clean.is_empty() || clean.starts_with('/') {
         return false;
     }
+    if Path::new(clean).components().any(|component| {
+        matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_))
+    }) {
+        return false;
+    }
     let top = clean.split('/').next().unwrap_or("");
     let not_allowed = ["bin", "boot", "dev", "etc", "home", "lib", "lib64",
                        "media", "mnt", "proc", "root", "run", "sbin", "sys",
                        "tmp", "usr", ".snapshots"];
     Path::new(&format!("/{}", clean)).is_dir() && !not_allowed.contains(&top)
+}
+
+// Devices that package-manager hooks in a prepared chroot normally need.
+// Host block devices are deliberately not exposed to chroot commands.
+const CHROOT_DEVICES: [&str; 6] = ["null", "zero", "full", "random", "urandom", "tty"];
+
+// Re-mount an existing bind mount read-only with additional hardening flags.
+fn remount_read_only(path: &str, flags: MsFlags) -> nix::Result<()> {
+    mount(Some("none"), path, Some("none"),
+          MsFlags::MS_REMOUNT | MsFlags::MS_BIND | MsFlags::MS_RDONLY | flags,
+          None::<&str>)
+}
+
+fn valid_token(value: &str, allowed: &str) -> bool {
+    !value.is_empty()
+        && !value.starts_with('-')
+        && !value.contains("..")
+        && value.chars().all(|ch| {
+            !ch.is_control() && !ch.is_whitespace()
+                && (ch.is_ascii_alphanumeric() || allowed.contains(ch))
+        })
+}
+
+pub fn validate_package_specs(pkgs: &[String]) -> Result<(), Error> {
+    for pkg in pkgs {
+        if !valid_token(pkg, "._-+~:=@/^") {
+            return Err(Error::new(ErrorKind::InvalidInput,
+                                  format!("Invalid package specification: {}", audit_escape(pkg))));
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_service_names(services: &[String]) -> Result<(), Error> {
+    for service in services {
+        if !valid_token(service, "._-@") {
+            return Err(Error::new(ErrorKind::InvalidInput,
+                                  format!("Invalid systemd unit name: {}", audit_escape(service))));
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_profile_name(profile: &str) -> Result<(), Error> {
+    if !profile.is_empty() && !valid_token(profile, "._-") {
+        return Err(Error::new(ErrorKind::InvalidInput,
+                              format!("Invalid profile name: {}", audit_escape(profile))));
+    }
+    Ok(())
+}
+
+pub fn validate_input_path(path: &str) -> Result<(), Error> {
+    if path.is_empty() || path.chars().any(|ch| ch.is_control()) {
+        return Err(Error::new(ErrorKind::InvalidInput,
+                              format!("Invalid path: {}", audit_escape(path))));
+    }
+    Ok(())
+}
+
+// User profiles are trusted configuration because they may contain command
+// sections, so reject paths that another user could replace and paths that
+// could traverse outside their parent directory.
+pub fn validate_user_profile(path: &str) -> Result<(), Error> {
+    if path.is_empty() {
+        return Ok(());
+    }
+    if path.chars().any(|ch| ch.is_control()) {
+        return Err(Error::new(ErrorKind::InvalidInput,
+                              format!("Invalid user profile path: {}", audit_escape(path))));
+    }
+    let profile = Path::new(path);
+    if !profile.is_absolute()
+        || profile.components().any(|component| matches!(component, Component::ParentDir)) {
+        return Err(Error::new(ErrorKind::InvalidInput,
+                              format!("Invalid user profile path: {}", audit_escape(path))));
+    }
+    let meta = symlink_metadata(profile).map_err(|e| Error::new(ErrorKind::InvalidInput,
+        format!("Cannot read user profile {}: {}", audit_escape(path), e)))?;
+    if !meta.file_type().is_file() || meta.file_type().is_symlink() || meta.mode() & 0o002 != 0 {
+        return Err(Error::new(ErrorKind::InvalidInput,
+                              format!("Unsafe user profile path: {}", audit_escape(path))));
+    }
+    let mut parent = profile.parent().map(Path::to_path_buf);
+    while let Some(dir) = parent {
+        let dir_meta = symlink_metadata(&dir).map_err(|e| Error::new(ErrorKind::InvalidInput,
+            format!("Cannot read profile directory {}: {}", dir.display(), e)))?;
+        if dir_meta.file_type().is_symlink() || dir_meta.mode() & 0o002 != 0 {
+            return Err(Error::new(ErrorKind::InvalidInput,
+                                  format!("Unsafe profile directory: {}", dir.display())));
+        }
+        parent = dir.parent().map(Path::to_path_buf);
+    }
+    Ok(())
+}
+
+// Paths listed under [system-configuration] are appended to snapshot roots.
+pub fn validate_system_config_path(path: &str) -> Result<(), Error> {
+    if path.is_empty() || path.chars().any(|ch| ch.is_control()) {
+        return Err(Error::new(ErrorKind::InvalidInput,
+                              format!("Invalid system configuration path: {}", audit_escape(path))));
+    }
+    let config = Path::new(path);
+    if !config.is_absolute()
+        || config.components().any(|component| matches!(component, Component::ParentDir)) {
+        return Err(Error::new(ErrorKind::InvalidInput,
+                              format!("Invalid system configuration path: {}", audit_escape(path))));
+    }
+    Ok(())
+}
+
+// Run a command inside a chroot with argv, never through a shell.
+pub fn run_chroot(root: &str, program: &str, args: &[&str]) -> Result<(), Error> {
+    let status = Command::new("chroot").arg(root).arg(program).args(args).status()?;
+    if !status.success() {
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Command failed in {}: {} {}",
+                                      root, program, args.join(" "))));
+    }
+    Ok(())
+}
+
+// Launch the configured editor without shell expansion. EDITOR may contain
+// arguments, but metacharacters are treated as literal path text.
+fn run_editor(path: &str) -> Result<(), Error> {
+    let editor = std::env::var("EDITOR").unwrap_or_default();
+    let candidates: Vec<String> = if editor.trim().is_empty() {
+        ["nano", "vi", "vim", "nvim", "micro"].iter().map(|s| s.to_string()).collect()
+    } else {
+        vec![editor]
+    };
+
+    for candidate in candidates {
+        let mut parts = candidate.split_whitespace();
+        let Some(program) = parts.next() else { continue; };
+        let mut command = Command::new(program);
+        command.args(parts).arg(path);
+        match command.status() {
+            Ok(status) => {
+                if !status.success() {
+                    eprintln!("The editor exited with an error; committing the changes as it is.");
+                }
+                return Ok(());
+            }
+            Err(_) => continue,
+        }
+    }
+    Err(Error::new(ErrorKind::NotFound, "No text editor available!"))
+}
+
+// Keep untrusted values from creating extra log records.
+fn audit_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            '\\' => escaped.push_str("\\\\"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
+}
+
+// Append to a local audit trail. Logging is best-effort: a missing log mount
+// must not prevent the underlying administrative operation from proceeding.
+pub fn audit_log(action: &str, details: &[(&str, &str)]) {
+    let dir = "/.snapshots/dsnap";
+    let mut builder = DirBuilder::new();
+    builder.recursive(true).mode(0o700);
+    if builder.create(dir).is_err() {
+        return;
+    }
+    let _ = std::fs::set_permissions(dir, Permissions::from_mode(0o700));
+    let timestamp = Local::now().format("%Y-%m-%dT%H:%M:%S%:z");
+    let mut line = format!("{} dsnap[{}] action={}", timestamp,
+                           std::process::id(), audit_escape(action));
+    for (key, value) in details {
+        line.push_str(&format!(" {}={}", audit_escape(key), audit_escape(value)));
+    }
+    line.push('\n');
+    let path = format!("{}/audit.log", dir);
+    if let Ok(mut file) = OpenOptions::new().mode(0o600).create(true).append(true)
+                                           .open(&path) {
+        let _ = file.write_all(line.as_bytes());
+        let _ = std::fs::set_permissions(&path, Permissions::from_mode(0o600));
+    }
+}
+
+fn secure_boot_enabled() -> Option<bool> {
+    let path = "/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c";
+    let bytes = std::fs::read(path).ok()?;
+    bytes.get(4).copied().or_else(|| bytes.last().copied()).map(|value| value != 0)
+}
+
+fn esp_mount_is_writable() -> Option<bool> {
+    let iter = MountIter::new().ok()?;
+    for mount in iter.flatten() {
+        let dest = mount.dest.to_string_lossy();
+        if matches!(dest.as_ref(), "/boot/efi" | "/efi" | "/boot/efiesp") {
+            return Some(!mount.options.iter().any(|option| option == "ro"));
+        }
+    }
+    None
+}
+
+fn warn_if_world_writable(path: &str, label: &str, warnings: &mut Vec<String>) {
+    if let Ok(meta) = std::fs::metadata(path) {
+        if meta.permissions().mode() & 0o002 != 0 {
+            warnings.push(format!("{} is world-writable", label));
+        }
+    }
+}
+
+// Print warnings for boot-state issues that weaken dsnap's immutability model.
+pub fn boot_security_warnings() -> Vec<String> {
+    let mut warnings = Vec::new();
+    if Path::new("/sys/firmware/efi").is_dir() {
+        match secure_boot_enabled() {
+            Some(false) => warnings.push("Secure Boot is disabled".to_string()),
+            None => warnings.push("Secure Boot state could not be read".to_string()),
+            Some(true) => {}
+        }
+    }
+    if esp_mount_is_writable() == Some(true) {
+        warnings.push("EFI System Partition is mounted writable".to_string());
+    }
+    for (path, label) in [("/.snapshots", "dsnap snapshot root"),
+                          ("/.snapshots/dsnap", "dsnap state directory"),
+                          ("/.snapshots/boot", "dsnap boot state"),
+                          ("/boot", "/boot")] {
+        warn_if_world_writable(path, label, &mut warnings);
+    }
+    for path in ["/boot/grub/grub.cfg", "/boot/grub2/grub.cfg"] {
+        warn_if_world_writable(path, path, &mut warnings);
+    }
+    warnings
+}
+
+pub fn print_boot_security_warnings() {
+    for warning in boot_security_warnings() {
+        eprintln!("security warning: {}", warning);
+    }
 }
 
 // dsnap chroot mounts
@@ -80,9 +329,25 @@ pub fn dsnap_mounts(i: &str, chr: &str) -> nix::Result<()> {
     // Mount snapshot to itself as a bind mount
     mount(Some(snapshot_path.as_str()), snapshot_path.as_str(),
           Some(file_system), MsFlags::MS_BIND | MsFlags::MS_SLAVE, None::<&str>)?;
-    // Mount /dev
-    mount(Some("/dev"), format!("{}/dev", snapshot_path).as_str(),
-          Some(file_system), MsFlags::MS_BIND | MsFlags::MS_SLAVE, None::<&str>)?;
+    // Mount /dev. Prepared chroots get a minimal private device directory;
+    // live shells keep the host devices because they are interactive sessions.
+    let dev_path = format!("{}/dev", snapshot_path);
+    DirBuilder::new().recursive(true).create(&dev_path)
+                     .map_err(|e| nix::errno::Errno::from_i32(e.raw_os_error().unwrap_or(5)))?;
+    if chr == "chr" {
+        mount(Some("tmpfs"), dev_path.as_str(), Some("tmpfs"),
+              MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC,
+              Some("size=1m,mode=755"))?;
+        for (link, target) in [("fd", "/proc/self/fd"),
+                               ("stdin", "/proc/self/fd/0"),
+                               ("stdout", "/proc/self/fd/1"),
+                               ("stderr", "/proc/self/fd/2")] {
+            let _ = symlink(target, format!("{}/{}", dev_path, link));
+        }
+    } else {
+        mount(Some("/dev"), dev_path.as_str(), Some(file_system),
+              MsFlags::MS_BIND | MsFlags::MS_SLAVE, None::<&str>)?;
+    }
     // Mount a private devpts instance inside the chroot
     DirBuilder::new().recursive(true)
                      .create(format!("{}/dev/pts", snapshot_path))
@@ -101,6 +366,26 @@ pub fn dsnap_mounts(i: &str, chr: &str) -> nix::Result<()> {
     mount(Some("tmpfs"), format!("{}/dev/shm", snapshot_path).as_str(),
           Some("tmpfs"), MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
           Some("size=64m,mode=1777"))?;
+    // Bind only the required character devices into prepared chroots.
+    if chr == "chr" {
+        for name in CHROOT_DEVICES {
+            let source = format!("/dev/{}", name);
+            if !Path::new(&source).exists() {
+                continue;
+            }
+            let target = format!("{}/{}", dev_path, name);
+            File::create(&target)
+                 .map_err(|e| nix::errno::Errno::from_i32(e.raw_os_error().unwrap_or(5)))?;
+            mount(Some(source.as_str()), target.as_str(), Some(file_system),
+                  MsFlags::MS_BIND, None::<&str>)?;
+        }
+    }
+    // Prevent new device nodes and remounts from inside the chroot. Some
+    // kernels reject read-only remounts of shared binds, so keep this
+    // best-effort and report the missed hardening instead of aborting.
+    if let Err(e) = remount_read_only(&dev_path, MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC) {
+        eprintln!("security warning: failed to harden /dev: {}", e);
+    }
     // Mount /etc
     if chr != "chr" {
         mount(Some("/etc"), format!("{}/etc", snapshot_path).as_str(),
@@ -123,15 +408,32 @@ pub fn dsnap_mounts(i: &str, chr: &str) -> nix::Result<()> {
     // Mount /root
     mount(Some("/root"), format!("{}/root", snapshot_path).as_str(),
           Some(file_system), MsFlags::MS_BIND | MsFlags::MS_SLAVE, None::<&str>)?;
-    // Mount /run
-    mount(Some("/run"), format!("{}/run", snapshot_path).as_str(),
-          Some("tmpfs"), MsFlags::MS_BIND | MsFlags::MS_SLAVE, None::<&str>)?;
+    // Chroot package operations get private runtime directories. Live shells
+    // keep the host bind mounts because users expect the live session state.
+    if chr == "chr" {
+        mount(Some("tmpfs"), format!("{}/run", snapshot_path).as_str(),
+              Some("tmpfs"), MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
+              Some("size=64m,mode=755"))?;
+    } else {
+        mount(Some("/run"), format!("{}/run", snapshot_path).as_str(),
+              Some("tmpfs"), MsFlags::MS_BIND | MsFlags::MS_SLAVE, None::<&str>)?;
+    }
     // Mount /sys
     mount(Some("/sys"), format!("{}/sys", snapshot_path).as_str(),
           Some("sysfs"), MsFlags::MS_BIND | MsFlags::MS_SLAVE, None::<&str>)?;
+    if let Err(e) = remount_read_only(&format!("{}/sys", snapshot_path),
+                                      MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC | MsFlags::MS_NODEV) {
+        eprintln!("security warning: failed to harden /sys: {}", e);
+    }
     // Mount /tmp
-    mount(Some("/tmp"), format!("{}/tmp", snapshot_path).as_str(),
-          Some("tmpfs"), MsFlags::MS_BIND | MsFlags::MS_REC | MsFlags::MS_SLAVE, None::<&str>)?;
+    if chr == "chr" {
+        mount(Some("tmpfs"), format!("{}/tmp", snapshot_path).as_str(),
+              Some("tmpfs"), MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
+              Some("size=256m,mode=1777"))?;
+    } else {
+        mount(Some("/tmp"), format!("{}/tmp", snapshot_path).as_str(),
+              Some("tmpfs"), MsFlags::MS_BIND | MsFlags::MS_REC | MsFlags::MS_SLAVE, None::<&str>)?;
+    }
     // Mount /var
     if chr != "chr" {
     mount(Some("/var"), format!("{}/var", snapshot_path).as_str(),
@@ -225,6 +527,13 @@ fn dsnap_umounts_inner(i: &str, chr: &str, tolerant: bool) -> nix::Result<()> {
     // Umount chroot /etc
     if chr != "chr" {
         umount_chroot(&format!("{}/etc", snapshot_path), MntFlags::MNT_DETACH, tolerant)?;
+    }
+    // Umount the minimal device binds before /dev itself
+    if chr == "chr" {
+        for name in CHROOT_DEVICES {
+            umount_chroot(&format!("{}/dev/{}", snapshot_path, name),
+                          MntFlags::MNT_DETACH, true)?;
+        }
     }
     // Umount chroot /dev/shm
     umount_chroot(&format!("{}/dev/shm", snapshot_path), MntFlags::MNT_DETACH, tolerant)?;
@@ -619,10 +928,18 @@ pub fn chroot_check() -> Result<bool, Error> {
     }
 }
 
-// Run command in chroot
-pub fn chroot_exec(path: &str,cmd: &str) -> Result<(), Error> {
-    let exocde = Command::new("sh").arg("-c").arg(format!("chroot {} {}", path,cmd)).status()?;
-    if !exocde.success() {
+// Run command in chroot. Configured commands intentionally need shell
+// semantics, but the shell must live inside the chroot so metacharacters
+// cannot execute on the host before chroot starts.
+pub fn chroot_exec(path: &str, cmd: &str) -> Result<(), Error> {
+    audit_log("chroot-command", &[("root", path), ("command", cmd)]);
+    let excode = Command::new("chroot")
+        .arg(path)
+        .arg("/bin/sh")
+        .arg("-c")
+        .arg(cmd)
+        .status()?;
+    if !excode.success() {
         return Err(
             Error::new(
                 ErrorKind::Other,
@@ -1374,6 +1691,7 @@ pub fn efi_boot_order() -> Result<(), Error> {
 
 // Send snapshot to export directory
 pub fn export(snapshot: &str, dest: &str) -> Result<(), Error> {
+    validate_input_path(dest)?;
     // Get current time
     let time = Local::now().naive_local();
     let formatted = time.format("%Y%m%d-%H%M%S%.9f").to_string();
@@ -1381,14 +1699,15 @@ pub fn export(snapshot: &str, dest: &str) -> Result<(), Error> {
     // Send btrfs to destination
     #[cfg(feature = "btrfs")]
     {
-        // The destination is passed as $1 so paths with spaces or shell
-        // metacharacters survive, and pipefail is used so a failed btrfs
-        // send is not silently ignored when zstd exits successfully
+        // Snapshot, destination and timestamp are positional parameters so
+        // spaces and shell metacharacters survive. pipefail is used so a
+        // failed btrfs send is not silently ignored when zstd succeeds.
         let excode = Command::new("bash").arg("-o").arg("pipefail").arg("-c")
-                       .arg(format!("sudo btrfs send /.snapshots/rootfs/snapshot-{} | zstd -o \"$1/snapshot-{}.{}.zst\"",
-                                    snapshot, snapshot, formatted))
+                       .arg("sudo btrfs send \"/.snapshots/rootfs/snapshot-$1\" | zstd -o \"$2/snapshot-$1.$3.zst\"")
                        .arg("bash")
+                       .arg(snapshot)
                        .arg(dest)
+                       .arg(formatted)
                        .status()?;
         if !excode.success() {
             return Err(Error::new(ErrorKind::Other,
@@ -1732,6 +2051,8 @@ fn receive_snapshot(path: &str, tmp_path: &str) -> Result<(), Error> {
 
 // Import snapshot
 pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir) -> Result<(), Error> {
+    validate_input_path(path)?;
+    validate_input_path(desc)?;
     // Make sure snapshot is not in use by another dsnap process
     if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}", snapshot)).try_exists()? {
         return Err(Error::new
@@ -1909,6 +2230,7 @@ pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir) -> Resul
 
 // Import base snapshot
 pub fn import_base(path: &str, tmp_dir: &TempDir) -> Result<String, Error> {
+    validate_input_path(path)?;
     let msg = "This process will change your base snapshot. Are you certain that you wish to proceed?";
 
     // Make sure snapshot is not in use by another dsnap process
@@ -2073,6 +2395,7 @@ pub fn import_base(path: &str, tmp_dir: &TempDir) -> Result<String, Error> {
 
 // Install packages
 pub fn install(snapshot: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
+    validate_package_specs(pkgs)?;
     // Make sure snapshot exists
     if !Path::new(&format!("/.snapshots/rootfs/snapshot-{}", snapshot)).try_exists()? {
         return Err(Error::new(ErrorKind::NotFound,
@@ -2147,6 +2470,8 @@ pub fn upgrade_live(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
 // Install a profile from a text file
 fn install_profile(snapshot: &str, profile: &str, force: bool, secondary: bool,
                    user_profile: &str, noconfirm: bool) -> Result<bool, Error> {
+    validate_profile_name(profile)?;
+    validate_user_profile(user_profile)?;
     // Get some values
     let distro = detect::distro_id();
     let dist_name = if distro.contains("_ashos") {
@@ -2265,6 +2590,8 @@ fn install_profile(snapshot: &str, profile: &str, force: bool, secondary: bool,
 
 // Install profile in live snapshot
 fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile: &str, noconfirm: bool) -> Result<(), Error> {
+    validate_profile_name(profile)?;
+    validate_user_profile(user_profile)?;
     // Get some values
     let distro = detect::distro_id();
     let dist_name = if distro.contains("_ashos") {
@@ -2382,6 +2709,9 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
 // Triage functions for argparse method
 pub fn install_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: &str, force: bool,
                       user_profile: &str, noconfirm: bool, secondary: bool) -> Result<(), Error> {
+    validate_package_specs(&pkgs)?;
+    validate_profile_name(profile)?;
+    validate_user_profile(user_profile)?;
     // Switch between profile and user_profile
     let p = if user_profile.is_empty() {
         profile
@@ -2544,6 +2874,8 @@ pub fn list_subvolumes() -> Result<(), Error> {
 
 // Enable or disable systemd unit(s) in a snapshot and keep the profile in sync.
 pub fn service_control(snapshot: &str, enable: &Vec<String>, disable: &Vec<String>) -> Result<(), Error> {
+    validate_service_names(enable)?;
+    validate_service_names(disable)?;
     if !Path::new(&format!("/.snapshots/rootfs/snapshot-{}", snapshot)).try_exists()? {
         return Err(Error::new(ErrorKind::NotFound,
                               format!("Cannot change services as snapshot {} doesn't exist.", snapshot)));
@@ -3476,60 +3808,8 @@ pub fn snapshot_config_edit(snapshot: &str) -> Result<(), Error> {
     } else {
         // Edit dsnap config
         prepare(snapshot)?;
-        if !std::env::var("EDITOR").unwrap_or_default().trim().is_empty() {
-            let excode = Command::new("sh").arg("-c")
-                          .arg(format!("$EDITOR /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/dsnap.conf", snapshot))
-                          .status()?;
-            if !excode.success() {
-                eprintln!("The editor exited with an error; committing the configuration as it is.");
-            }
-        } else {
-            // nano available
-            if Command::new("sh").arg("-c")
-                                 .arg("[ -x \"$(command -v nano)\" ]")
-                                 .status()?.success() {
-                                     Command::new("sh").arg("-c")
-                                                       .arg(format!("nano /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/dsnap.conf", snapshot))
-                                                       .status()?;
-                                 }
-            // vi available
-            else if Command::new("sh").arg("-c")
-                                      .arg("[ -x \"$(command -v vi)\" ]")
-                                      .status()?.success() {
-                                          Command::new("sh").arg("-c")
-                                                            .arg(format!("vi /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/dsnap.conf", snapshot))
-                                                            .status()?;
-                                      }
-            // vim available
-            else if Command::new("sh").arg("-c")
-                                      .arg("[ -x \"$(command -v vim)\" ]")
-                                      .status()?.success() {
-                                          Command::new("sh").arg("-c")
-                                                            .arg(format!("vim /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/dsnap.conf", snapshot))
-                                                            .status()?;
-                                      }
-            // neovim
-            else if Command::new("sh").arg("-c")
-                                      .arg("[ -x \"$(command -v nvim)\" ]")
-                                      .status()?.success() {
-                                          Command::new("sh").arg("-c")
-                                                            .arg(format!("nvim /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/dsnap.conf", snapshot))
-                                                            .status()?;
-                                      }
-            // micro
-            else if Command::new("sh").arg("-c")
-                                      .arg("[ -x \"$(command -v micro)\" ]")
-                                      .status()?.success() {
-                                          Command::new("sh").arg("-c")
-                                                            .arg(format!("micro /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/dsnap.conf", snapshot))
-                                                            .status()?;
-                                      }
-            else {
-                chr_delete(snapshot)?;
-                return Err(Error::new(ErrorKind::NotFound,
-                                      "No text editor available!"));
-            }
-        }
+        run_editor(&format!("/.snapshots/rootfs/snapshot-chr{}/etc/dsnap/dsnap.conf",
+                            snapshot))?;
 
         // Commit the edit to etc-N and clean up the chroot, otherwise the
         // edit is silently discarded by the next prepare()
@@ -3686,60 +3966,8 @@ pub fn snapshot_profile_edit(snapshot: &str) -> Result<(), Error> {
         prepare(snapshot)?;
 
         // Launch editor
-        if !std::env::var("EDITOR").unwrap_or_default().trim().is_empty() {
-            let excode = Command::new("sh").arg("-c")
-                          .arg(format!("$EDITOR /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot))
-                          .status()?;
-            if !excode.success() {
-                eprintln!("The editor exited with an error; committing the profile as it is.");
-            }
-        } else {
-            // nano available
-            if Command::new("sh").arg("-c")
-                                 .arg("[ -x \"$(command -v nano)\" ]")
-                                 .status()?.success() {
-                                     Command::new("sh").arg("-c")
-                                                       .arg(format!("nano /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot))
-                                                       .status()?;
-                                 }
-            // vi available
-            else if Command::new("sh").arg("-c")
-                                      .arg("[ -x \"$(command -v vi)\" ]")
-                                      .status()?.success() {
-                                          Command::new("sh").arg("-c")
-                                                            .arg(format!("vi /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot))
-                                                            .status()?;
-                                      }
-            // vim available
-            else if Command::new("sh").arg("-c")
-                                      .arg("[ -x \"$(command -v vim)\" ]")
-                                      .status()?.success() {
-                                          Command::new("sh").arg("-c")
-                                                            .arg(format!("vim /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot))
-                                                            .status()?;
-                                      }
-            // neovim
-            else if Command::new("sh").arg("-c")
-                                      .arg("[ -x \"$(command -v nvim)\" ]")
-                                      .status()?.success() {
-                                          Command::new("sh").arg("-c")
-                                                            .arg(format!("nvim /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot))
-                                                            .status()?;
-                                      }
-            // micro
-            else if Command::new("sh").arg("-c")
-                                      .arg("[ -x \"$(command -v micro)\" ]")
-                                      .status()?.success() {
-                                          Command::new("sh").arg("-c")
-                                                            .arg(format!("micro /.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile", snapshot))
-                                                            .status()?;
-                                      }
-            else {
-                chr_delete(snapshot)?;
-                return Err(Error::new(ErrorKind::NotFound,
-                                      "No text editor available!"));
-            }
-        }
+        run_editor(&format!("/.snapshots/rootfs/snapshot-chr{}/etc/dsnap/profile",
+                            snapshot))?;
 
         if check_profile(snapshot).is_err() {
             chr_delete(snapshot)?;
@@ -3792,24 +4020,16 @@ pub fn snapshot_unlock(snapshot: &str) -> Result<(), Error> {
     Ok(())
 }
 
-// Fetch the response headers of a HEAD request, optionally skipping TLS
-// certificate verification (needed when the clock is too far off for the
-// certificate to validate).
-fn fetch_date_headers(verify_tls: bool) -> Result<String, Error> {
-    // curl --proto =https -I https://google.com
+// Fetch the response headers of a HEAD request using normal TLS verification.
+fn fetch_date_headers(url: &str) -> Result<String, Error> {
     let mut easy = Easy::new();
-    easy.url("https://google.com")?;
+    easy.url(url)?;
 
     easy.http_version(HttpVersion::V2)?;
     // Let curl negotiate TLS 1.2/1.3 instead of forcing 1.3 only
     easy.nobody(true)?;
     easy.connect_timeout(Duration::from_secs(10))?;
     easy.timeout(Duration::from_secs(20))?;
-
-    if !verify_tls {
-        easy.ssl_verify_peer(false)?;
-        easy.ssl_verify_host(false)?;
-    }
 
     let mut headers = List::new();
     headers.append("Accept: */*")?;
@@ -3829,33 +4049,24 @@ fn fetch_date_headers(verify_tls: bool) -> Result<String, Error> {
     Ok(String::from_utf8_lossy(&response_headers).into_owned())
 }
 
-// Sync time
-pub fn sync_time() -> Result<(), Error> {
-    // Normally verify the certificate, but the clock is what we are trying to
-    // fix: if it is wrong enough the certificate check fails, so retry
-    // without verification instead of failing to sync at all.
-    let response_headers_str = match fetch_date_headers(true) {
-        Ok(headers) => headers,
-        Err(err) => {
-            eprintln!("Verified TLS request failed ({}), retrying without certificate verification.", err);
-            fetch_date_headers(false)?
-        }
-    };
-
-    let date_header = response_headers_str
+// Parse an HTTP Date header and set the system clock from it.
+fn set_time_from_headers(response_headers: &str) -> Result<(), Error> {
+    let date_header = response_headers
         .lines()
         .find(|line| line.to_lowercase().starts_with("date:"))
         .ok_or_else(|| Error::new(ErrorKind::Other, "Date header not found."))?;
 
     // HTTP date headers look like "date: Tue, 17 Nov 2026 13:07:43 GMT"
-    // and are always in GMT (RFC 7231), tokens 2..7 include the timezone
+    // and are always in GMT (RFC 7231).
     let date_str: Vec<&str> = date_header.split_whitespace().collect();
     if date_str.len() < 7 {
         return Err(Error::new(ErrorKind::Other, "Malformed date header."));
     }
-    let date = &date_str[2..7].join(" ");
+    let value = date_str[2..7].join(" ");
+    let parsed = NaiveDateTime::parse_from_str(&value, "%d %b %Y %H:%M:%S")
+        .map_err(|e| Error::new(ErrorKind::InvalidData, format!("Invalid date header: {}", e)))?;
+    let date = parsed.format("%Y-%m-%d %H:%M:%S UTC").to_string();
 
-    // Set time and make sure it actually worked
     let output = Command::new("date").args(["-u", "-s"]).arg(date).output()?;
     if !output.status.success() {
         return Err(Error::new(ErrorKind::Other,
@@ -3863,6 +4074,60 @@ pub fn sync_time() -> Result<(), Error> {
                                       String::from_utf8_lossy(&output.stderr).trim())));
     }
     Ok(())
+}
+
+// Try a small set of HTTPS endpoints. TLS verification stays enabled; a bad
+// clock will make these fail, which is exactly why local time services are
+// tried before giving up.
+const TIME_SYNC_URLS: [&str; 3] = [
+    "https://www.google.com",
+    "https://www.cloudflare.com",
+    "https://www.microsoft.com",
+];
+
+fn sync_time_from_https() -> Result<(), Error> {
+    let mut last_err = None;
+    for url in TIME_SYNC_URLS {
+        match fetch_date_headers(url).and_then(|headers| set_time_from_headers(&headers)) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                eprintln!("Time sync from {} failed: {}", url, e);
+                last_err = Some(e);
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| Error::new(ErrorKind::Other, "No HTTPS time source configured.")))
+}
+
+// Try locally installed time daemons/tools. These may use authenticated NTP
+// and avoid weakening TLS verification when the clock is badly wrong.
+fn sync_time_locally() -> bool {
+    let helpers: [(&str, &[&str]); 3] = [
+        ("chronyc", &["makestep"]),
+        ("ntpdate", &["-b", "pool.ntp.org"]),
+        ("hwclock", &["-s"]),
+    ];
+    for (program, args) in helpers {
+        match Command::new(program).args(args).status() {
+            Ok(status) if status.success() => return true,
+            Ok(_) => {}
+            Err(_) => {}
+        }
+    }
+    false
+}
+
+// Sync time without disabling TLS verification. If all HTTPS attempts fail,
+// try a local time service and then retry HTTPS.
+pub fn sync_time() -> Result<(), Error> {
+    if sync_time_from_https().is_ok() {
+        return Ok(());
+    }
+    if sync_time_locally() && sync_time_from_https().is_ok() {
+        return Ok(());
+    }
+    Err(Error::new(ErrorKind::Other,
+                   "Unable to sync time from a verified HTTPS source. Set the clock manually or configure chrony/ntpdate, then retry."))
 }
 
 // Clear all temporary snapshots
@@ -4212,6 +4477,7 @@ pub fn tree_upgrade(treename: &str) -> Result<(), Error> {
 
 // Uninstall package(s)
 pub fn uninstall(snapshot: &str, pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
+    validate_package_specs(pkgs)?;
     // Make sure snapshot exists
     if !Path::new(&format!("/.snapshots/rootfs/snapshot-{}", snapshot)).try_exists()? {
         return Err(Error::new(ErrorKind::NotFound,
@@ -4264,6 +4530,8 @@ pub fn uninstall_live(pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> 
 
 // Uninstall a profile from a text file
 fn uninstall_profile(snapshot: &str, profile: &str, user_profile: &str, noconfirm: bool) -> Result<(), Error> {
+    validate_profile_name(profile)?;
+    validate_user_profile(user_profile)?;
     // Get some values
     let distro = detect::distro_id();
     let dist_name = if distro.contains("_ashos") {
@@ -4344,6 +4612,8 @@ fn uninstall_profile(snapshot: &str, profile: &str, user_profile: &str, noconfir
 
 // Uninstall profile in live snapshot
 fn uninstall_profile_live(_snapshot: &str,profile: &str, user_profile: &str, noconfirm: bool) -> Result<(), Error> {
+    validate_profile_name(profile)?;
+    validate_user_profile(user_profile)?;
     // Get some values
     let distro = detect::distro_id();
     let dist_name = if distro.contains("_ashos") {
@@ -4416,6 +4686,9 @@ fn uninstall_profile_live(_snapshot: &str,profile: &str, user_profile: &str, noc
 // Triage functions for argparse method
 pub fn uninstall_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: &str,
                         user_profile: &str, noconfirm: bool) -> Result<(), Error> {
+    validate_package_specs(&pkgs)?;
+    validate_profile_name(profile)?;
+    validate_user_profile(user_profile)?;
     // Switch between profile and user_profile
     let p = if user_profile.is_empty() {
         profile
