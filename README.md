@@ -1,10 +1,10 @@
-# distro snapper
+# Distro Snapper
 
-**distro snapper** is a Rust command-line tool for managing
+**Distro Snapper** is a Rust command-line tool for managing
 immutable, tree-shaped Btrfs snapshots on Linux. Each snapshot can keep its own
 package profile, configuration and GRUB boot target.
 
-> **Experimental project.** distro snapper is under active development.
+> **Experimental project.** Distro Snapper is under active development.
 > Snapshot layouts, command behavior, safety checks and package integration may
 > change without compatibility guarantees. Use spare disks or verified backups,
 > and read [`docs/partitioning.md`](docs/partitioning.md) before running
@@ -27,7 +27,7 @@ package profile, configuration and GRUB boot target.
 <a id="build-from-source"></a>
 ## Build from source
 
-distro snapper is built with Cargo. The default feature set is
+Distro Snapper is built with Cargo. The default feature set is
 `base-import,btrfs,grub,import,pacman`.
 
 The `apt`, `dnf` and `pacman` features select the package-manager backend at
@@ -168,7 +168,7 @@ The Arch PKGBUILD uses the default Pacman backend.
 
 ## History and credits
 
-distro snapper did not start from scratch. It is the current name in a line of
+Distro Snapper did not start from scratch. It is the current name in a line of
 projects that developed the immutable, tree-shaped Btrfs snapshot model.
 
 The lineage is:
@@ -183,8 +183,8 @@ The lineage is:
 3. The [`rust` branch of ochibani/ash](https://github.com/ochibani/ash/tree/rust)
    was the direct technical ancestor of this repository. It explored the Rust
    implementation, package-manager backends and snapshot workflows that later
-   became distro snapper.
-4. [distro snapper](https://github.com/ochibani/dsnap), with the `dsnap`
+   became Distro Snapper.
+4. [Distro Snapper](https://github.com/ochibani/dsnap), with the `dsnap`
    command, is the current root-only CLI-focused continuation of that work.
 
 Credit is due to the previous developers and contributors who made this
@@ -204,6 +204,6 @@ possible:
   [@RashiqAzhan](https://github.com/RashiqAzhan).
 
 Thanks also to everyone who reported issues, tested snapshots, wrote
-documentation or contributed changes in those projects. distro snapper remains
+documentation or contributed changes in those projects. Distro Snapper remains
 a separate experimental project, but it owes its design and early
 implementation work to their efforts.

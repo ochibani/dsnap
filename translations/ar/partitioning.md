@@ -1,8 +1,8 @@
 النسخة الإنجليزية: [دليل تقسيم الأقراص](../../docs/partitioning.md) · [الصفحة الرئيسية](README.md)
 
-# تقسيم الأقراص لـ distro snapper (`dsnap`)
+# تقسيم الأقراص لـ Distro Snapper (`dsnap`)
 
-يشرح هذا الدليل تخطيط Btrfs المتوقع من **distro snapper**.
+يشرح هذا الدليل تخطيط Btrfs المتوقع من **Distro Snapper**.
 
 <a id="easy-installation-path"></a>
 ## مسار التثبيت السهل
@@ -10,9 +10,9 @@
 الطريقة الموصى بها للحصول على تخطيط Btrfs الصحيح هي استخدام الأدوات المرافقة
 بدلًا من تقسيم الأقراص يدويًا:
 
-- استخدم [`dinstaller`](https://github.com/ochibani/dinstaller) لتثبيت distro snapper مع تخطيط الوحدات الفرعية المتوقع؛
+- استخدم [`dinstaller`](https://github.com/ochibani/dinstaller) لتثبيت Distro Snapper مع تخطيط الوحدات الفرعية المتوقع؛
 - استخدم سكربت [`dlive`](https://github.com/ochibani/dlive) لبناء صورة ISO حية
-  تحتوي على [`dinstaller`](https://github.com/ochibani/dinstaller) و distro snapper.
+  تحتوي على [`dinstaller`](https://github.com/ochibani/dinstaller) و Distro Snapper.
 
 لا يزال التقسيم اليدوي مدعومًا، لكن أسهل مسار هو:
 
@@ -26,7 +26,7 @@
 <a id="install-with-dinstaller"></a>
 ### التثبيت باستخدام dinstaller
 
-يُعد [`dinstaller`](https://github.com/ochibani/dinstaller) مسار التثبيت الموصى به لـ distro snapper.
+يُعد [`dinstaller`](https://github.com/ochibani/dinstaller) مسار التثبيت الموصى به لـ Distro Snapper.
 ومع إعداد داعم لـ dsnap، يجب أن ينشئ أو يتحقق من الوحدات الفرعية التالية:
 
 ```text
@@ -50,7 +50,7 @@
 ### بناء صورة ISO حية باستخدام dlive
 
 يمكن لملف [`dlive`](https://github.com/ochibani/dlive) الخاص بـ archiso بناء صورة ISO حية
-تحتوي على [`dinstaller`](https://github.com/ochibani/dinstaller) و distro snapper.
+تحتوي على [`dinstaller`](https://github.com/ochibani/dinstaller) و Distro Snapper.
 
 ```sh
 pacman -S archiso
@@ -61,7 +61,7 @@ example: mkarchiso -v -r -w /tmp/dinstalleriso-tmp -o ~/out_dir ~/dlive
 <a id="scope"></a>
 ## النطاق
 
-يغطي هذا الدليل التخطيط الذي يستخدمه distro snapper لأنظمة الجذر Btrfs مع
+يغطي هذا الدليل التخطيط الذي يستخدمه Distro Snapper لأنظمة الجذر Btrfs مع
 GRUB. لا يُغني هذا الدليل عن توثيق التثبيت الخاص بتوزيعتك.
 
 <a id="hard-requirements"></a>

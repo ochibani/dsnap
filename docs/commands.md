@@ -1,4 +1,4 @@
-# Command reference for distro snapper (`dsnap`)
+# Command reference for Distro Snapper (`dsnap`)
 
 All examples assume root privileges via `sudo`. The generated manpage remains
 the exact source for flags; this page explains intent and gives safe starting

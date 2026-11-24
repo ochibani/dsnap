@@ -1,6 +1,6 @@
-# Partitioning for distro snapper (`dsnap`)
+# Partitioning for Distro Snapper (`dsnap`)
 
-This guide describes the Btrfs layout expected by **distro snapper**.
+This guide describes the Btrfs layout expected by **Distro Snapper**.
 
 <a id="easy-installation-path"></a>
 ## Easy installation path
@@ -8,9 +8,9 @@ This guide describes the Btrfs layout expected by **distro snapper**.
 The recommended way to get the correct Btrfs layout is to use the companion
 tools instead of partitioning manually:
 
-- use [`dinstaller`](https://github.com/ochibani/dinstaller) to install distro snapper with the expected subvolume layout;
+- use [`dinstaller`](https://github.com/ochibani/dinstaller) to install Distro Snapper with the expected subvolume layout;
 - use the [`dlive`](https://github.com/ochibani/dlive) script to build a live
-  ISO that contains [`dinstaller`](https://github.com/ochibani/dinstaller) and distro snapper.
+  ISO that contains [`dinstaller`](https://github.com/ochibani/dinstaller) and Distro Snapper.
 
 Manual partitioning is still supported, but the easiest path is:
 
@@ -24,7 +24,7 @@ live root subvolume or using an unsupported `/boot` layout.
 <a id="install-with-dinstaller"></a>
 ### Install with dinstaller
 
-[`dinstaller`](https://github.com/ochibani/dinstaller) is the recommended installer path for distro snapper. With a
+[`dinstaller`](https://github.com/ochibani/dinstaller) is the recommended installer path for Distro Snapper. With a
 dsnap-aware configuration, it should create or verify:
 
 ```text
@@ -48,7 +48,7 @@ It should also configure:
 ### Build a live ISO with dlive
 
 The [`dlive`](https://github.com/ochibani/dlive) archiso profile can build a live ISO
-that includes [`dinstaller`](https://github.com/ochibani/dinstaller) and distro snapper.
+that includes [`dinstaller`](https://github.com/ochibani/dinstaller) and Distro Snapper.
 
 ```sh
 pacman -S archiso
@@ -59,7 +59,7 @@ example: mkarchiso -v -r -w /tmp/dinstalleriso-tmp -o ~/out_dir ~/dlive
 <a id="scope"></a>
 ## Scope
 
-This guide covers the layout used by distro snapper for Btrfs-root systems with
+This guide covers the layout used by Distro Snapper for Btrfs-root systems with
 GRUB. It does not replace distribution-specific installation documentation.
 
 <a id="hard-requirements"></a>
