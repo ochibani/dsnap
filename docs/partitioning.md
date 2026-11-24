@@ -44,9 +44,6 @@ It should also configure:
 /boot/efi
 ```
 
-After installation, verify the result with the
-[verification checklist](#verification-checklist).
-
 <a id="build-a-live-iso-with-dlive"></a>
 ### Build a live ISO with dlive
 
