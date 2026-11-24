@@ -21,6 +21,7 @@ BuildRequires:  rust
 Requires:       btrfs-progs
 Requires:       curl
 Requires:       efibootmgr
+Requires:       gnupg2
 Requires:       python3
 Requires:       python3-anytree
 Recommends:     systemd
@@ -39,6 +40,7 @@ export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 cargo build --release --locked --no-default-features --features "base-import,btrfs,grub,import,lock,dnf"
 
 %install
+install -d -m755 %{buildroot}%{_sysconfdir}/dsnap/export-keys
 install -Dm755 target/release/dsnap %{buildroot}%{_bindir}/dsnap
 install -Dm644 %{SOURCE1} %{buildroot}%{_unitdir}/dsnap-auto-upgrade.service
 install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/dsnap-auto-upgrade.timer
@@ -51,6 +53,7 @@ install -Dm644 target/release/build/dsnap-*/out/dsnap.fish %{buildroot}%{_datadi
 %files
 %license LICENSE
 %{_bindir}/dsnap
+%dir %attr(0755,root,root) %{_sysconfdir}/dsnap/export-keys
 %{_mandir}/man8/dsnap*.8*
 %{_unitdir}/dsnap-auto-upgrade.service
 %{_unitdir}/dsnap-auto-upgrade.timer

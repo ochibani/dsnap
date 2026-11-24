@@ -125,7 +125,8 @@ fn main() -> ExitCode {
                 };
 
                 // Run import_base
-                let run = import_base(&path, &tmp_dir);
+                let allow_unverified = base_import_matches.get_flag("ALLOW_UNVERIFIED");
+                let run = import_base(&path, &tmp_dir, allow_unverified);
                 if cfg!(feature = "base-import") {
                     match run {
                         Ok(_) => {
@@ -579,6 +580,12 @@ fn main() -> ExitCode {
                     dest
                 };
 
+                // Get signing key value
+                let signing_key = export_matches.get_one::<String>("SIGNING_KEY")
+                                               .map(|s| s.as_str())
+                                               .unwrap()
+                                               .to_string();
+
                 // Run export
                 if !Path::new("/.snapshots/dsnap/export").try_exists().unwrap_or(false) {
                     match Command::new("mkdir").arg("-p")
@@ -597,7 +604,7 @@ fn main() -> ExitCode {
                 }
 
                 // Run export
-                let run = export(&snapshot, &dest);
+                let run = export(&snapshot, &dest, &signing_key);
                 match run {
                     Ok(_) => (),
                     Err(e) => fail!("{}", e),
@@ -763,7 +770,8 @@ fn main() -> ExitCode {
                 };
 
                 // Run import
-                let run = import(snapshot, &path, &desc, &tmp_dir);
+                let allow_unverified = import_matches.get_flag("ALLOW_UNVERIFIED");
+                let run = import(snapshot, &path, &desc, &tmp_dir, allow_unverified);
                 if cfg!(feature = "import") {
                     match run {
                         Ok(_) => {

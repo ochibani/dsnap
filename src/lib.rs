@@ -224,6 +224,183 @@ fn run_editor(path: &str) -> Result<(), Error> {
     Err(Error::new(ErrorKind::NotFound, "No text editor available!"))
 }
 
+// Trust anchor for verifying signed exports. Only root-owned keys here count.
+const TRUSTED_EXPORT_KEYS_DIR: &str = "/etc/dsnap/export-keys";
+
+// Reject a key directory that a non-root user could replace.
+fn secure_root_owned_dir(path: &str) -> Result<(), Error> {
+    let meta = symlink_metadata(path)?;
+    if meta.file_type().is_symlink() || !meta.file_type().is_dir()
+        || meta.uid() != 0 || meta.mode() & 0o022 != 0 {
+        return Err(Error::new(ErrorKind::PermissionDenied,
+                              format!("Unsafe export key directory {}: must be a root-owned directory not writable by group or others.",
+                                      audit_escape(path))));
+    }
+    Ok(())
+}
+
+// Apply the same ownership and write-permission checks to each key file.
+fn secure_root_owned_file(path: &Path) -> Result<(), Error> {
+    let meta = symlink_metadata(path)?;
+    if meta.file_type().is_symlink() || !meta.file_type().is_file()
+        || meta.uid() != 0 || meta.mode() & 0o022 != 0 {
+        return Err(Error::new(ErrorKind::PermissionDenied,
+                              format!("Unsafe export key file {}: must be a root-owned regular file not writable by group or others.",
+                                      audit_escape(&path.to_string_lossy()))));
+    }
+    Ok(())
+}
+
+// Return the SHA-512 checksum line produced by coreutils.
+fn sha512sum_line(path: &str) -> Result<Vec<u8>, Error> {
+    let output = Command::new("sha512sum").arg("--").arg(path).output()?;
+    if !output.status.success() {
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Failed to checksum {}.", audit_escape(path))));
+    }
+    if output.stdout.is_empty() {
+        return Err(Error::new(ErrorKind::InvalidData,
+                              format!("Empty checksum output for {}.", audit_escape(path))));
+    }
+    Ok(output.stdout)
+}
+
+// sha512sum emits 128 hexadecimal characters for a SHA-512 digest.
+fn valid_sha512(value: &str) -> bool {
+    value.len() == 128 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+// Extract and normalize the digest from coreutils output.
+fn checksum_for(path: &str) -> Result<String, Error> {
+    let output = sha512sum_line(path)?;
+    let line = String::from_utf8_lossy(&output);
+    let checksum = line.split_whitespace().next().unwrap_or("");
+    if !valid_sha512(checksum) {
+        return Err(Error::new(ErrorKind::InvalidData,
+                              format!("Invalid checksum for {}.", audit_escape(path))));
+    }
+    Ok(checksum.to_ascii_lowercase())
+}
+
+// Write a standard sha512sum sidecar beside the exported stream.
+fn write_checksum_file(path: &str) -> Result<(), Error> {
+    let line = sha512sum_line(path)?;
+    let sidecar = format!("{}.sha512", path);
+    std::fs::write(&sidecar, line)?;
+    Ok(())
+}
+
+// Sign the checksum sidecar with the administrator-selected GPG key.
+// --local-user= keeps the key argument from being parsed as another option.
+fn sign_checksum_file(path: &str, signing_key: &str) -> Result<(), Error> {
+    if signing_key.trim().is_empty() || signing_key.chars().any(|ch| ch.is_control()) {
+        return Err(Error::new(ErrorKind::InvalidInput,
+                              "Invalid GPG signing key."));
+    }
+    let signature = format!("{}.sig", path);
+    let status = Command::new("gpg")
+        .args(["--batch", "--yes", "--armor", "--detach-sign"])
+        .arg(format!("--local-user={}", signing_key))
+        .arg("--output").arg(&signature)
+        .arg(path)
+        .status()?;
+    if !status.success() {
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Failed to sign checksum file {}.", audit_escape(path))));
+    }
+    audit_log("sign-export-checksum", &[("checksum", path), ("key", signing_key)]);
+    Ok(())
+}
+
+// Verify the detached signature against the local trust store.
+// A temporary GNUPGHOME keeps root's normal keyring out of this decision.
+fn verify_snapshot_signature(digest_path: &str) -> Result<(), Error> {
+    let signature = format!("{}.sig", digest_path);
+    if !Path::new(&signature).is_file() {
+        audit_log("verify-import-signature", &[("path", digest_path), ("result", "missing")]);
+        return Err(Error::new(ErrorKind::InvalidInput,
+                              format!("Missing signature file {}. Re-export with dsnap export or pass --allow-unverified for a trusted legacy export.",
+                                      audit_escape(&signature))));
+    }
+
+    secure_root_owned_dir(TRUSTED_EXPORT_KEYS_DIR)?;
+    let home = TempDir::new()?;
+    let mut imported = 0;
+    // Import every trusted public key into the isolated homedir.
+    for entry in read_dir(TRUSTED_EXPORT_KEYS_DIR)? {
+        let entry = entry?;
+        secure_root_owned_file(&entry.path())?;
+        let status = Command::new("gpg")
+            .args(["--batch", "--yes", "--homedir"])
+            .arg(home.path())
+            .arg("--import")
+            .arg(entry.path())
+            .status()?;
+        if status.success() {
+            imported += 1;
+        }
+    }
+    if imported == 0 {
+        audit_log("verify-import-signature", &[("path", digest_path), ("result", "no-trusted-keys")]);
+        return Err(Error::new(ErrorKind::PermissionDenied,
+                              format!("No usable public keys found in {}.", TRUSTED_EXPORT_KEYS_DIR)));
+    }
+
+    // The signature is over the checksum file, not the archive itself.
+    let status = Command::new("gpg")
+        .args(["--batch", "--homedir"])
+        .arg(home.path())
+        .arg("--verify")
+        .arg(&signature)
+        .arg(digest_path)
+        .status()?;
+    if !status.success() {
+        audit_log("verify-import-signature", &[("path", digest_path), ("result", "invalid")]);
+        return Err(Error::new(ErrorKind::InvalidData,
+                              format!("Signature verification failed for {}.", audit_escape(digest_path))));
+    }
+
+    audit_log("verify-import-signature", &[("path", digest_path), ("result", "verified")]);
+    Ok(())
+}
+
+// Verify authenticity and integrity before an import reaches btrfs receive.
+// --allow-unverified is an explicit, audited escape hatch for trusted legacy exports.
+fn verify_snapshot_checksum(path: &str, allow_unverified: bool) -> Result<(), Error> {
+    let sidecar = format!("{}.sha512", path);
+    if allow_unverified {
+        eprintln!("warning: importing {} without signed checksum verification; use --allow-unverified only for trusted legacy exports.", path);
+        audit_log("verify-import-checksum", &[("path", path), ("result", "unverified")]);
+        return Ok(());
+    }
+    if !Path::new(&sidecar).is_file() {
+        return Err(Error::new(ErrorKind::InvalidInput,
+                              format!("Missing checksum file {}. Re-export with dsnap export or pass --allow-unverified for a trusted legacy export.",
+                                      audit_escape(&sidecar))));
+    }
+
+    // Only trust a checksum whose signature verifies against the local key store.
+    verify_snapshot_signature(&sidecar)?;
+
+    let expected_line = read_to_string(&sidecar)?;
+    let expected = expected_line.split_whitespace().next().unwrap_or("");
+    if !valid_sha512(expected) {
+        return Err(Error::new(ErrorKind::InvalidData,
+                              format!("Invalid checksum file {}.", audit_escape(&sidecar))));
+    }
+
+    let actual = checksum_for(path)?;
+    if !expected.eq_ignore_ascii_case(&actual) {
+        audit_log("verify-import-checksum", &[("path", path), ("result", "mismatch")]);
+        return Err(Error::new(ErrorKind::InvalidData,
+                              format!("Checksum mismatch for {}. Expected {}, got {}. The export may be corrupt or tampered with.",
+                                      audit_escape(path), expected, actual)));
+    }
+
+    audit_log("verify-import-checksum", &[("path", path), ("result", "verified")]);
+    Ok(())
+}
+
 // Keep untrusted values from creating extra log records.
 fn audit_escape(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
@@ -1690,8 +1867,16 @@ pub fn efi_boot_order() -> Result<(), Error> {
 }
 
 // Send snapshot to export directory
-pub fn export(snapshot: &str, dest: &str) -> Result<(), Error> {
+pub fn export(snapshot: &str, dest: &str, signing_key: &str) -> Result<(), Error> {
     validate_input_path(dest)?;
+    if signing_key.trim().is_empty() || signing_key.chars().any(|ch| ch.is_control()) {
+        return Err(Error::new(ErrorKind::InvalidInput, "Invalid GPG signing key."));
+    }
+    let dest = if dest.chars().all(|ch| ch == '/') {
+        "/"
+    } else {
+        dest.trim_end_matches('/')
+    };
     // Get current time
     let time = Local::now().naive_local();
     let formatted = time.format("%Y%m%d-%H%M%S%.9f").to_string();
@@ -1699,6 +1884,8 @@ pub fn export(snapshot: &str, dest: &str) -> Result<(), Error> {
     // Send btrfs to destination
     #[cfg(feature = "btrfs")]
     {
+        let archive = format!("{}/snapshot-{}.{}.zst", dest, snapshot, formatted);
+        let digest = format!("{}.sha512", archive);
         // Snapshot, destination and timestamp are positional parameters so
         // spaces and shell metacharacters survive. pipefail is used so a
         // failed btrfs send is not silently ignored when zstd succeeds.
@@ -1713,6 +1900,8 @@ pub fn export(snapshot: &str, dest: &str) -> Result<(), Error> {
             return Err(Error::new(ErrorKind::Other,
                                   format!("Failed to export snapshot {} to {}.", snapshot, dest)));
         }
+        write_checksum_file(&archive)?;
+        sign_checksum_file(&digest, signing_key)?;
     }
 
     Ok(())
@@ -2050,7 +2239,7 @@ fn receive_snapshot(path: &str, tmp_path: &str) -> Result<(), Error> {
 }
 
 // Import snapshot
-pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir) -> Result<(), Error> {
+pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir, allow_unverified: bool) -> Result<(), Error> {
     validate_input_path(path)?;
     validate_input_path(desc)?;
     // Make sure snapshot is not in use by another dsnap process
@@ -2065,6 +2254,8 @@ pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir) -> Resul
         return Err(Error::new(ErrorKind::NotFound, format!("The snapshot {} doesn't exist.", path)));
 
     } else {
+        verify_snapshot_checksum(path, allow_unverified)?;
+
         // AtomicBool flag to track if the process was interrupted
         let interrupted = Arc::new(AtomicBool::new(false));
 
@@ -2229,7 +2420,7 @@ pub fn import(snapshot: i32, path: &str, desc: &str, tmp_dir: &TempDir) -> Resul
 }
 
 // Import base snapshot
-pub fn import_base(path: &str, tmp_dir: &TempDir) -> Result<String, Error> {
+pub fn import_base(path: &str, tmp_dir: &TempDir, allow_unverified: bool) -> Result<String, Error> {
     validate_input_path(path)?;
     let msg = "This process will change your base snapshot. Are you certain that you wish to proceed?";
 
@@ -2244,6 +2435,8 @@ pub fn import_base(path: &str, tmp_dir: &TempDir) -> Result<String, Error> {
         return Err(Error::new(ErrorKind::NotFound, format!("The snapshot {} doesn't exist.", path)));
 
     } else if yes_no(msg) {
+        verify_snapshot_checksum(path, allow_unverified)?;
+
         // AtomicBool flag to track if the process was interrupted
         let interrupted = Arc::new(AtomicBool::new(false));
 

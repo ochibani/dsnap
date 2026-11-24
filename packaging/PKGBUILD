@@ -6,7 +6,7 @@ pkgdesc="Manage immutable tree-shaped btrfs snapshots."
 url="https://github.com/ochibani/dsnap"
 arch=("x86_64")
 license=("AGPL-3.0-only")
-depends=("btrfs-progs" "coreutils" "curl" "efibootmgr" "pacman" "paru" "python-anytree" "rc-local")
+depends=("btrfs-progs" "coreutils" "curl" "efibootmgr" "gnupg" "pacman" "paru" "python-anytree" "rc-local")
 makedepends=("cargo" "git")
 optdepends=("grub" "systemd")
 provides=("distro-snapper")
@@ -26,6 +26,7 @@ build() {
 }
 
 package() {
+  install -d -m755 "$pkgdir/etc/dsnap/export-keys"
   mkdir -p "$pkgdir/usr/bin/"
   cd "$pkgname"
   install -Dm755 "target/release/dsnap" "${pkgdir}/usr/bin/dsnap"

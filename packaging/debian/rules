@@ -11,6 +11,7 @@ override_dh_auto_build:
 override_dh_auto_test:
 
 override_dh_auto_install:
+	install -d -m755 debian/distro-snapper/etc/dsnap/export-keys
 	install -Dm755 target/release/dsnap debian/distro-snapper/usr/bin/dsnap
 	install -Dm644 packaging/systemd/dsnap-auto-upgrade.service debian/distro-snapper/usr/lib/systemd/system/dsnap-auto-upgrade.service
 	install -Dm644 packaging/systemd/dsnap-auto-upgrade.timer debian/distro-snapper/usr/lib/systemd/system/dsnap-auto-upgrade.timer
