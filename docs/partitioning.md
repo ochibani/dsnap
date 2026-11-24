@@ -1,7 +1,6 @@
 # Partitioning for distro snapper (`dsnap`)
 
-This guide describes the Btrfs layout expected by **distro snapper**, whose
-installed command is `dsnap`.
+This guide describes the Btrfs layout expected by **distro snapper**.
 
 <a id="easy-installation-path"></a>
 ## Easy installation path
@@ -9,9 +8,9 @@ installed command is `dsnap`.
 The recommended way to get the correct Btrfs layout is to use the companion
 tools instead of partitioning manually:
 
-- use `dinstaller` to install distro snapper with the expected subvolume layout;
+- use [`dinstaller`](https://github.com/ochibani/dinstaller) to install distro snapper with the expected subvolume layout;
 - use the [`dlive`](https://github.com/ochibani/dlive) script to build a live
-  ISO that contains `dinstaller` and distro snapper.
+  ISO that contains [`dinstaller`](https://github.com/ochibani/dinstaller) and distro snapper.
 
 Manual partitioning is still supported, but the easiest path is:
 
@@ -25,7 +24,7 @@ live root subvolume or using an unsupported `/boot` layout.
 <a id="install-with-dinstaller"></a>
 ### Install with dinstaller
 
-`dinstaller` is the recommended installer path for distro snapper. With a
+[`dinstaller`](https://github.com/ochibani/dinstaller) is the recommended installer path for distro snapper. With a
 dsnap-aware configuration, it should create or verify:
 
 ```text
@@ -51,27 +50,14 @@ After installation, verify the result with the
 <a id="build-a-live-iso-with-dlive"></a>
 ### Build a live ISO with dlive
 
-The [`dlive`](https://github.com/ochibani/dlive) script can build a live ISO
-that includes `dinstaller` and distro snapper. The exact build script name is
-still unconfirmed because the repository URL currently returns 404.
+The [`dlive`](https://github.com/ochibani/dlive) archiso profile can build a live ISO
+that includes [`dinstaller`](https://github.com/ochibani/dinstaller) and distro snapper.
 
 ```sh
-git clone https://github.com/ochibani/dlive.git
-cd dlive
-sudo ./<dlive-build-script>.sh
+pacman -S archiso
+mkarchiso -v -r -w /path/to/work_dir -o /path/to/out_dir /path/to/dlive/
+example: mkarchiso -v -r -w /tmp/dinstalleriso-tmp -o ~/out_dir ~/dlive
 ```
-
-The generated ISO should include at least:
-
-- `dinstaller`;
-- `dsnap`;
-- `btrfs-progs`;
-- GRUB tools;
-- `efibootmgr` on EFI systems;
-- kernel and firmware packages needed by the target machine.
-
-Writing an ISO to the wrong disk destroys data. Verify the target device before
-using `dd` or any raw disk writer.
 
 <a id="scope"></a>
 ## Scope
@@ -103,8 +89,7 @@ GRUB. It does not replace distribution-specific installation documentation.
 @srv_linux              /srv
 ```
 
-Shared `/home`, `/srv` and default `/var` behavior is intentional. User
-namespaces are not part of the trust model.
+Shared `/home`, `/srv` and default `/var` behavior is intentional.
 
 <a id="example-initial-fstab"></a>
 ## Example initial fstab
@@ -122,21 +107,7 @@ UUID=EFI /boot/efi vfat umask=0077 0 2
 <a id="shared-mutable-directories"></a>
 ## Shared mutable directories
 
-`/home`, `/srv` and the default `/var` data are shared between trees. Do not put
-snapshot state, GRUB state or `dsnap` configuration in shared mutable
-directories.
-
-<a id="verification-checklist"></a>
-## Verification checklist
-
-```sh
-findmnt -T / -o SOURCE,FSTYPE,OPTIONS
-findmnt -T /.snapshots -o OPTIONS
-btrfs subvolume list /
-sudo dsnap tree
-sudo dsnap current
-sudo dsnap boot-update -s 0
-```
+`/home`, `/srv` and the default `/var` data are shared between trees.
 
 <a id="common-mistakes"></a>
 ## Common mistakes
