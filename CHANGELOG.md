@@ -449,3 +449,7 @@ This file is generated from conventional commit subjects.
 
 - Document source and package builds
 
+- Capitalize Distro Snapper name
+
+- Show translation options first in READMEs
+
