@@ -20,8 +20,150 @@
 - [مسار التثبيت السهل](partitioning.md#easy-installation-path)
 - [المتطلبات الأساسية](partitioning.md#hard-requirements)
 - [التخطيط الموصى به](partitioning.md#recommended-layout)
+- [البناء من المصدر](#build-from-source)
+- [بناء الحزم](#build-packages)
 - [مرجع الأوامر](commands.md)
 - [التاريخ والإسناد](#التاريخ-والإسناد)
+
+<a id="build-from-source"></a>
+## البناء من المصدر
+
+يُبنى distro snapper باستخدام Cargo. مجموعة المزايا الافتراضية هي
+`base-import,btrfs,grub,import,pacman`.
+
+تختار المزايا `apt` و`dnf` و`pacman` الواجهة الخلفية لمدير الحزم وقت الترجمة.
+لا يمكن استخدام أكثر من واحدة منها معًا؛ اختر واحدة فقط للتوزيعة المستهدفة.
+
+قبل البناء، اضبط متغير توافق PyO3:
+
+```sh
+export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+```
+
+هذا مطلوب لأن المشروع يثبّت `pyo3 0.21.2`، وتتطلب مفسرات بايثون الأحدث وضع
+ABI المستقر المتوافق مع الإصدارات الأقدم.
+
+### مزايا Cargo
+
+| الميزة | الغرض |
+| --- | --- |
+| `base-import` | تفعيل أمر `base-import` لاستعادة اللقطة 0 من تيار مُتحقّق منه. |
+| `btrfs` | تفعيل دعم وحدات Btrfs الفرعية واللقطات؛ يجلب `libbtrfs`. |
+| `grub` | تفعيل دعم أهداف إقلاع GRUB ومدخل الاستعادة. |
+| `import` | تفعيل أمر `import`. |
+| `lock` | تفعيل دعم تثبيت الحزم، مثل `apt-mark hold` على الأنظمة المبنية على Debian. |
+| `apt` | الواجهة الخلفية لـ APT وقت الترجمة، لبنائي Debian/Ubuntu. |
+| `dnf` | الواجهة الخلفية لـ DNF وقت الترجمة، لبناء Fedora. |
+| `pacman` | الواجهة الخلفية لـ Pacman وقت الترجمة، لبناء Arch. |
+
+يستخدم البناء العادي مجموعة المزايا الافتراضية:
+
+```sh
+cargo build --locked
+```
+
+### Arch Linux
+
+ثبّت تبعيات البناء والتشغيل:
+
+```sh
+sudo pacman -S --needed base-devel cargo git btrfs-progs curl efibootmgr gnupg python python-anytree grub
+```
+
+يمكن للواجهة الخلفية لـ Pacman استخدام `paru` أيضًا لحزم AUR؛ ثبّتها من AUR إذا
+كانت ملفات التعريف لديك تحتاج دعم AUR.
+
+ابنِ بوضوح باستخدام واجهة Arch:
+
+```sh
+export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+cargo build --release --locked --no-default-features \
+  --features "base-import,btrfs,grub,import,lock,pacman"
+```
+
+### Fedora
+
+ثبّت تبعيات البناء والتشغيل:
+
+```sh
+sudo dnf install cargo rust gcc make pkgconf-pkg-config openssl-devel \
+  libcurl-devel python3-devel btrfs-progs curl efibootmgr gnupg2 \
+  python3 python3-anytree
+```
+
+ابنِ بوضوح باستخدام واجهة DNF:
+
+```sh
+export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+cargo build --release --locked --no-default-features \
+  --features "base-import,btrfs,grub,import,lock,dnf"
+```
+
+### Debian / Ubuntu
+
+ثبّت تبعيات البناء والتشغيل:
+
+```sh
+sudo apt install build-essential cargo rustc pkg-config libssl-dev \
+  libcurl4-openssl-dev libpython3-dev file debhelper btrfs-progs curl \
+  efibootmgr gnupg python3-anytree
+```
+
+ابنِ بوضوح باستخدام واجهة APT:
+
+```sh
+export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+cargo build --release --locked --no-default-features \
+  --features "base-import,btrfs,grub,import,lock,apt"
+```
+
+<a id="build-packages"></a>
+## بناء الحزم
+
+توجد وصفات التغليف في `packaging/`. تثبّت هذه الوصفات `/usr/bin/dsnap` ووحدات
+systemd وصفحات man وإكمالات الصدفة. إضافة الحزمة المبنية إلى مستودع تقع على
+عاتق المستخدم أو مدير الحزم.
+
+### Arch Linux
+
+يبني ملف PKGBUILD حزمة `distro-snapper-git`:
+
+```sh
+cd packaging
+makepkg -si
+```
+
+### Fedora
+
+جهّز شجرة بناء RPM وأرشيف المصدر وملفات systemd:
+
+```sh
+sudo dnf install rpmdevtools rpm-build
+rpmdev-setuptree
+
+git archive --format=tar.gz --prefix=distro-snapper-0.1.0/ \
+  -o ~/rpmbuild/SOURCES/distro-snapper-0.1.0.tar.gz HEAD
+
+mkdir -p ~/rpmbuild/SOURCES/packaging/systemd
+cp packaging/systemd/dsnap-auto-upgrade.service \
+   packaging/systemd/dsnap-auto-upgrade.timer \
+   ~/rpmbuild/SOURCES/packaging/systemd/
+
+rpmbuild -ba packaging/rpm/distro-snapper.spec
+```
+
+### Debian / Ubuntu
+
+توجد ملفات التغليف في `packaging/debian`. انسخها إلى `debian/` قبل البناء:
+
+```sh
+cp -r packaging/debian debian
+dpkg-buildpackage -us -uc -b
+rm -rf debian
+```
+
+تستخدم وصفتا Debian وFedora الميزتين `apt` و`dnf` على التوالي. يستخدم ملف
+PKGBUILD الخاص بـ Arch الواجهة الافتراضية Pacman.
 
 ## التاريخ والإسناد
 
