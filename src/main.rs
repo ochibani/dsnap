@@ -65,7 +65,27 @@ use grub::update_boot;
 // /usr/share/dsnap/snap               : snapshot number
 // /var/lib/dsnap(/fstree)             : dsnap files, stores fstree, symlink to /.snapshots/dsnap/fstree
 
+// All external helpers are looked up with this fixed PATH. Variables that
+// can alter helper behaviour or inject code are removed before any command
+// is spawned.
+const TRUSTED_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+
+fn sanitize_environment() {
+    std::env::set_var("PATH", TRUSTED_PATH);
+    std::env::set_var("HOME", "/root");
+    std::env::set_var("SHELL", "/bin/sh");
+    std::env::set_var("TMPDIR", "/tmp");
+    for key in [
+        "LD_PRELOAD", "LD_LIBRARY_PATH", "BASH_ENV", "ENV", "IFS",
+        "CDPATH", "GLOBIGNORE", "SHELLOPTS", "PYTHONPATH", "PERL5LIB",
+        "RUBYLIB", "NODE_PATH", "PHP_INI_SCAN_DIR",
+    ] {
+        std::env::remove_var(key);
+    }
+}
+
 fn main() -> ExitCode {
+    sanitize_environment();
     if !Uid::effective().is_root() {
         fail!("sudo/doas is required to run dsnap!");
     } else {

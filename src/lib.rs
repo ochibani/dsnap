@@ -363,6 +363,28 @@ pub fn run_chroot(root: &str, program: &str, args: &[&str]) -> Result<(), Error>
     Ok(())
 }
 
+// A configured EDITOR must be an absolute path that resolves to a root-owned
+// executable in trusted directories. This prevents PATH lookup or a user-owned
+// editor from running with dsnap's root privileges.
+fn trusted_editor_path(program: &str) -> Option<PathBuf> {
+    if !program.starts_with('/') {
+        return None;
+    }
+    let canonical = std::fs::canonicalize(program).ok()?;
+    let meta = symlink_metadata(&canonical).ok()?;
+    if !meta.file_type().is_file() || meta.uid() != 0
+        || meta.mode() & 0o022 != 0 || meta.mode() & 0o111 == 0 {
+        return None;
+    }
+    for ancestor in canonical.ancestors() {
+        let dir_meta = symlink_metadata(ancestor).ok()?;
+        if dir_meta.uid() != 0 || dir_meta.mode() & 0o022 != 0 {
+            return None;
+        }
+    }
+    Some(canonical)
+}
+
 // Launch the configured editor without shell expansion. EDITOR may contain
 // arguments, but metacharacters are treated as literal path text.
 fn run_editor(path: &str) -> Result<(), Error> {
@@ -376,6 +398,7 @@ fn run_editor(path: &str) -> Result<(), Error> {
     for candidate in candidates {
         let mut parts = candidate.split_whitespace();
         let Some(program) = parts.next() else { continue; };
+        let Some(program) = trusted_editor_path(program) else { continue; };
         let mut command = Command::new(program);
         command.args(parts).arg(path);
         match command.status() {
@@ -388,7 +411,7 @@ fn run_editor(path: &str) -> Result<(), Error> {
             Err(_) => continue,
         }
     }
-    Err(Error::new(ErrorKind::NotFound, "No text editor available!"))
+    Err(Error::new(ErrorKind::NotFound, "No trusted text editor available!"))
 }
 
 // Trust anchor for verifying signed exports. Only root-owned keys here count.

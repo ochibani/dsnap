@@ -71,6 +71,11 @@ Export destinations must be absolute directories without symlink components
 and must not be writable by group or others. Archive, checksum, and signature
 paths are reserved exclusively before they are written.
 .PP
+External helpers are resolved through a fixed trusted PATH, and variables that
+could alter helper execution are removed before dsnap spawns them. A custom
+.B EDITOR
+must be an absolute path to a root-owned executable in trusted directories.
+.PP
 Shells and commands entered through dsnap run in a private mount namespace,
 prefer
 .BR pivot_root (2)
