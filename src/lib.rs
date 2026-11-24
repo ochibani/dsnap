@@ -8,6 +8,8 @@ use ctrlc;
 use curl::easy::{Easy, HttpVersion, List};
 use detect_distro as detect;
 use nix::mount::{MntFlags, mount, MsFlags, umount2};
+use nix::sched::{unshare, CloneFlags};
+use nix::unistd::{chdir, chroot as sys_chroot, pivot_root};
 use partition_identity::{PartitionID, PartitionSource};
 use proc_mounts::MountIter;
 use rustix::path::Arg;
@@ -15,6 +17,7 @@ use std::collections::HashMap;
 use std::fs::{copy, DirBuilder, File, OpenOptions, Permissions, read_dir, read_to_string, symlink_metadata};
 use std::io::{BufRead, BufReader, Error, ErrorKind, Read, stdin, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
+use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::sync::Arc;
@@ -497,6 +500,243 @@ pub fn print_boot_security_warnings() {
     }
 }
 
+// Linux sandbox primitives used for prepared and live chroots.
+const LINUX_CAPABILITY_VERSION_3: u32 = 0x2008_0522;
+const SECCOMP_SET_MODE_FILTER: libc::c_ulong = 1;
+const SECCOMP_RET_KILL_PROCESS: u32 = 0x8000_0000;
+const SECCOMP_RET_ALLOW: u32 = 0x7fff_0000;
+const BPF_LD_W_ABS: u16 = 0x20;
+const BPF_JEQ_K: u16 = 0x10;
+const BPF_JSET_K: u16 = 0x45;
+const BPF_RET_K: u16 = 0x06;
+#[cfg(target_arch = "x86_64")]
+const AUDIT_ARCH_X86_64: u32 = 0xC000_003E;
+#[cfg(target_arch = "aarch64")]
+const AUDIT_ARCH_AARCH64: u32 = 0xC000_00B7;
+const X32_SYSCALL_BIT: u32 = 0x4000_0000;
+// CAP_SYS_MODULE, CAP_SYS_RAWIO, CAP_SYS_CHROOT, CAP_SYS_PTRACE,
+// CAP_SYS_ADMIN, CAP_SYS_BOOT, CAP_SYS_TIME, CAP_MKNOD, CAP_SYSLOG.
+const CHROOT_DROP_CAPS: [u32; 9] = [16, 17, 18, 19, 21, 22, 25, 27, 34];
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct CapUserHeader {
+    version: u32,
+    pid: i32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct CapUserData {
+    effective: u32,
+    permitted: u32,
+    inheritable: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct SockFilter {
+    code: u16,
+    jt: u8,
+    jf: u8,
+    k: u32,
+}
+
+#[repr(C)]
+struct SockFprog {
+    len: u16,
+    filter: *const SockFilter,
+}
+
+#[derive(Clone)]
+struct MacTransition {
+    attr: String,
+}
+
+fn nix_io_error(e: nix::Error) -> Error {
+    Error::from_raw_os_error(e as i32)
+}
+
+// Validate an optional mandatory-access-control transition. AppArmor and
+// SELinux both use /proc/self/attr/exec, but with different value syntax.
+fn mac_transition_from_env() -> Result<Option<MacTransition>, Error> {
+    fn valid_label(label: &str) -> bool {
+        !label.trim().is_empty() && label.len() <= 4096
+            && !label.chars().any(|ch| ch == '\0' || ch == '\n' || ch == '\r')
+    }
+
+    if let Ok(label) = std::env::var("DSNAP_APPARMOR_PROFILE") {
+        if !valid_label(&label) {
+            return Err(Error::new(ErrorKind::InvalidInput, "Invalid AppArmor profile name."));
+        }
+        audit_log("mac-transition", &[("system", "apparmor"), ("label", &label)]);
+        return Ok(Some(MacTransition {
+            attr: format!("exec {}", label),
+        }));
+    }
+
+    if let Ok(label) = std::env::var("DSNAP_SELINUX_CONTEXT") {
+        if !valid_label(&label) {
+            return Err(Error::new(ErrorKind::InvalidInput, "Invalid SELinux context."));
+        }
+        audit_log("mac-transition", &[("system", "selinux"), ("label", &label)]);
+        return Ok(Some(MacTransition {
+            attr: label,
+        }));
+    }
+
+    Ok(None)
+}
+
+// Apply the requested MAC transition just before the chroot shell or command
+// is executed. A configured transition must succeed or the command is denied.
+fn apply_mac_transition(transition: Option<&MacTransition>) -> Result<(), Error> {
+    if let Some(transition) = transition {
+        let mut attr = OpenOptions::new().write(true).open("/proc/self/attr/exec")?;
+        attr.write_all(transition.attr.as_bytes())?;
+    }
+    Ok(())
+}
+
+// Drop capabilities that are never needed by package-manager hooks in a
+// chroot. Administrative capabilities needed by the package manager itself
+// are intentionally kept.
+fn drop_chroot_capabilities() -> Result<(), Error> {
+    let header = CapUserHeader { version: LINUX_CAPABILITY_VERSION_3, pid: 0 };
+    let mut data = [CapUserData::default(); 2];
+    if unsafe { libc::syscall(libc::SYS_capget, &header, data.as_mut_ptr()) } != 0 {
+        return Err(Error::last_os_error());
+    }
+    for cap in CHROOT_DROP_CAPS {
+        let word = (cap / 32) as usize;
+        let mask = 1u32 << (cap % 32);
+        data[word].effective &= !mask;
+        data[word].permitted &= !mask;
+        data[word].inheritable &= !mask;
+    }
+    if unsafe { libc::syscall(libc::SYS_capset, &header, data.as_ptr()) } != 0 {
+        return Err(Error::last_os_error());
+    }
+    Ok(())
+}
+
+fn seccomp_arch() -> Option<u32> {
+    #[cfg(target_arch = "x86_64")]
+    {
+        Some(AUDIT_ARCH_X86_64)
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+        Some(AUDIT_ARCH_AARCH64)
+    }
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        None
+    }
+}
+
+// Block kernel-level escape and reconfiguration primitives inside the chroot.
+// This is a denylist so ordinary package-manager syscalls keep working.
+fn install_chroot_seccomp() -> Result<(), Error> {
+    let arch = match seccomp_arch() {
+        Some(arch) => arch,
+        None => {
+            eprintln!("security warning: seccomp is not configured for this architecture");
+            return Ok(());
+        }
+    };
+    let blocked = [
+        libc::SYS_mount,
+        libc::SYS_umount2,
+        libc::SYS_pivot_root,
+        libc::SYS_unshare,
+        libc::SYS_setns,
+        libc::SYS_ptrace,
+        libc::SYS_init_module,
+        libc::SYS_delete_module,
+        libc::SYS_finit_module,
+        libc::SYS_bpf,
+        libc::SYS_perf_event_open,
+        libc::SYS_userfaultfd,
+        libc::SYS_syslog,
+        libc::SYS_reboot,
+    ];
+
+    let mut filter = Vec::with_capacity(6 + blocked.len() * 3 + 1);
+    // Reject syscalls from an ABI other than the one dsnap was built for.
+    filter.push(SockFilter { code: BPF_LD_W_ABS, jt: 0, jf: 0, k: 0 });
+    filter.push(SockFilter { code: BPF_JEQ_K, jt: 1, jf: 0, k: arch });
+    filter.push(SockFilter { code: BPF_RET_K, jt: 0, jf: 0, k: SECCOMP_RET_KILL_PROCESS });
+    // Reject x32 syscalls on x86_64; the x32 bit can bypass number checks.
+    filter.push(SockFilter { code: BPF_LD_W_ABS, jt: 0, jf: 0, k: 4 });
+    filter.push(SockFilter { code: BPF_JSET_K, jt: 0, jf: 1, k: X32_SYSCALL_BIT });
+    filter.push(SockFilter { code: BPF_RET_K, jt: 0, jf: 0, k: SECCOMP_RET_KILL_PROCESS });
+    for nr in blocked {
+        filter.push(SockFilter { code: BPF_LD_W_ABS, jt: 0, jf: 0, k: 4 });
+        filter.push(SockFilter { code: BPF_JEQ_K, jt: 0, jf: 1, k: nr as u32 });
+        filter.push(SockFilter { code: BPF_RET_K, jt: 0, jf: 0, k: SECCOMP_RET_KILL_PROCESS });
+    }
+    filter.push(SockFilter { code: BPF_RET_K, jt: 0, jf: 0, k: SECCOMP_RET_ALLOW });
+
+    let prog = SockFprog { len: filter.len() as u16, filter: filter.as_ptr() };
+    if unsafe { libc::syscall(libc::SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &prog as *const SockFprog) } != 0 {
+        return Err(Error::last_os_error());
+    }
+    Ok(())
+}
+
+// Enter the target root in a child process: prefer pivot_root in a private
+// mount namespace, fall back to chroot where the kernel disallows pivot_root.
+fn harden_chroot_child(root: &str, put_old: &str, mac: Option<&MacTransition>) -> Result<(), Error> {
+    let private = unshare(CloneFlags::CLONE_NEWNS).is_ok();
+    if private {
+        mount(None::<&str>, "/", None::<&str>,
+              MsFlags::MS_PRIVATE | MsFlags::MS_REC, None::<&str>)
+            .map_err(nix_io_error)?;
+        if pivot_root(root, put_old).is_ok() {
+            chdir("/").map_err(nix_io_error)?;
+            let _ = umount2(Path::new("/.dsnap-oldroot"), MntFlags::MNT_DETACH);
+        } else {
+            eprintln!("security warning: pivot_root unavailable; using chroot fallback");
+            sys_chroot(root).map_err(nix_io_error)?;
+            chdir("/").map_err(nix_io_error)?;
+        }
+    } else {
+        eprintln!("security warning: private mount namespace unavailable; using chroot fallback");
+        sys_chroot(root).map_err(nix_io_error)?;
+        chdir("/").map_err(nix_io_error)?;
+    }
+
+    apply_mac_transition(mac)?;
+    if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } != 0 {
+        return Err(Error::last_os_error());
+    }
+    drop_chroot_capabilities()?;
+    install_chroot_seccomp()?;
+    Ok(())
+}
+
+// Run /bin/sh inside the target root with sandbox hardening applied in the
+// child. The executable is resolved after pre_exec, so it comes from the
+// target root, not the host.
+fn run_sandboxed_chroot(path: &str, args: &[&str]) -> Result<ExitStatus, Error> {
+    let mac = mac_transition_from_env()?;
+    let root = path.to_string();
+    let put_old = format!("{}/.dsnap-oldroot", path);
+    DirBuilder::new().recursive(true).create(&put_old)?;
+
+    let child_mac = mac.clone();
+    let child_put_old = put_old.clone();
+    let mut cmd = Command::new("/bin/sh");
+    cmd.args(args);
+    unsafe {
+        cmd.pre_exec(move || harden_chroot_child(&root, &child_put_old, child_mac.as_ref()));
+    }
+    let status = cmd.status()?;
+    let _ = std::fs::remove_dir(&put_old);
+    Ok(status)
+}
+
 // dsnap chroot mounts
 pub fn dsnap_mounts(i: &str, chr: &str) -> nix::Result<()> {
     #[cfg(feature = "btrfs")]
@@ -506,24 +746,19 @@ pub fn dsnap_mounts(i: &str, chr: &str) -> nix::Result<()> {
     // Mount snapshot to itself as a bind mount
     mount(Some(snapshot_path.as_str()), snapshot_path.as_str(),
           Some(file_system), MsFlags::MS_BIND | MsFlags::MS_SLAVE, None::<&str>)?;
-    // Mount /dev. Prepared chroots get a minimal private device directory;
-    // live shells keep the host devices because they are interactive sessions.
+    // Every chroot gets a minimal private /dev. Live shells no longer inherit
+    // the host's full device directory.
     let dev_path = format!("{}/dev", snapshot_path);
     DirBuilder::new().recursive(true).create(&dev_path)
                      .map_err(|e| nix::errno::Errno::from_i32(e.raw_os_error().unwrap_or(5)))?;
-    if chr == "chr" {
-        mount(Some("tmpfs"), dev_path.as_str(), Some("tmpfs"),
-              MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC,
-              Some("size=1m,mode=755"))?;
-        for (link, target) in [("fd", "/proc/self/fd"),
-                               ("stdin", "/proc/self/fd/0"),
-                               ("stdout", "/proc/self/fd/1"),
-                               ("stderr", "/proc/self/fd/2")] {
-            let _ = symlink(target, format!("{}/{}", dev_path, link));
-        }
-    } else {
-        mount(Some("/dev"), dev_path.as_str(), Some(file_system),
-              MsFlags::MS_BIND | MsFlags::MS_SLAVE, None::<&str>)?;
+    mount(Some("tmpfs"), dev_path.as_str(), Some("tmpfs"),
+          MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC,
+          Some("size=1m,mode=755"))?;
+    for (link, target) in [("fd", "/proc/self/fd"),
+                           ("stdin", "/proc/self/fd/0"),
+                           ("stdout", "/proc/self/fd/1"),
+                           ("stderr", "/proc/self/fd/2")] {
+        let _ = symlink(target, format!("{}/{}", dev_path, link));
     }
     // Mount a private devpts instance inside the chroot
     DirBuilder::new().recursive(true)
@@ -543,19 +778,17 @@ pub fn dsnap_mounts(i: &str, chr: &str) -> nix::Result<()> {
     mount(Some("tmpfs"), format!("{}/dev/shm", snapshot_path).as_str(),
           Some("tmpfs"), MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
           Some("size=64m,mode=1777"))?;
-    // Bind only the required character devices into prepared chroots.
-    if chr == "chr" {
-        for name in CHROOT_DEVICES {
-            let source = format!("/dev/{}", name);
-            if !Path::new(&source).exists() {
-                continue;
-            }
-            let target = format!("{}/{}", dev_path, name);
-            File::create(&target)
-                 .map_err(|e| nix::errno::Errno::from_i32(e.raw_os_error().unwrap_or(5)))?;
-            mount(Some(source.as_str()), target.as_str(), Some(file_system),
-                  MsFlags::MS_BIND, None::<&str>)?;
+    // Bind only the required character devices into the chroot.
+    for name in CHROOT_DEVICES {
+        let source = format!("/dev/{}", name);
+        if !Path::new(&source).exists() {
+            continue;
         }
+        let target = format!("{}/{}", dev_path, name);
+        File::create(&target)
+             .map_err(|e| nix::errno::Errno::from_i32(e.raw_os_error().unwrap_or(5)))?;
+        mount(Some(source.as_str()), target.as_str(), Some(file_system),
+              MsFlags::MS_BIND, None::<&str>)?;
     }
     // Prevent new device nodes and remounts from inside the chroot. Some
     // kernels reject read-only remounts of shared binds, so keep this
@@ -585,16 +818,11 @@ pub fn dsnap_mounts(i: &str, chr: &str) -> nix::Result<()> {
     // Mount /root
     mount(Some("/root"), format!("{}/root", snapshot_path).as_str(),
           Some(file_system), MsFlags::MS_BIND | MsFlags::MS_SLAVE, None::<&str>)?;
-    // Chroot package operations get private runtime directories. Live shells
-    // keep the host bind mounts because users expect the live session state.
-    if chr == "chr" {
-        mount(Some("tmpfs"), format!("{}/run", snapshot_path).as_str(),
-              Some("tmpfs"), MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
-              Some("size=64m,mode=755"))?;
-    } else {
-        mount(Some("/run"), format!("{}/run", snapshot_path).as_str(),
-              Some("tmpfs"), MsFlags::MS_BIND | MsFlags::MS_SLAVE, None::<&str>)?;
-    }
+    // Every chroot gets private runtime directories. Host /run state is not
+    // exposed, including for live shells.
+    mount(Some("tmpfs"), format!("{}/run", snapshot_path).as_str(),
+          Some("tmpfs"), MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
+          Some("size=64m,mode=755"))?;
     // Mount /sys
     mount(Some("/sys"), format!("{}/sys", snapshot_path).as_str(),
           Some("sysfs"), MsFlags::MS_BIND | MsFlags::MS_SLAVE, None::<&str>)?;
@@ -602,15 +830,10 @@ pub fn dsnap_mounts(i: &str, chr: &str) -> nix::Result<()> {
                                       MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC | MsFlags::MS_NODEV) {
         eprintln!("security warning: failed to harden /sys: {}", e);
     }
-    // Mount /tmp
-    if chr == "chr" {
-        mount(Some("tmpfs"), format!("{}/tmp", snapshot_path).as_str(),
-              Some("tmpfs"), MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
-              Some("size=256m,mode=1777"))?;
-    } else {
-        mount(Some("/tmp"), format!("{}/tmp", snapshot_path).as_str(),
-              Some("tmpfs"), MsFlags::MS_BIND | MsFlags::MS_REC | MsFlags::MS_SLAVE, None::<&str>)?;
-    }
+    // Mount a private /tmp in every chroot.
+    mount(Some("tmpfs"), format!("{}/tmp", snapshot_path).as_str(),
+          Some("tmpfs"), MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
+          Some("size=256m,mode=1777"))?;
     // Mount /var
     if chr != "chr" {
     mount(Some("/var"), format!("{}/var", snapshot_path).as_str(),
@@ -706,11 +929,9 @@ fn dsnap_umounts_inner(i: &str, chr: &str, tolerant: bool) -> nix::Result<()> {
         umount_chroot(&format!("{}/etc", snapshot_path), MntFlags::MNT_DETACH, tolerant)?;
     }
     // Umount the minimal device binds before /dev itself
-    if chr == "chr" {
-        for name in CHROOT_DEVICES {
-            umount_chroot(&format!("{}/dev/{}", snapshot_path, name),
-                          MntFlags::MNT_DETACH, true)?;
-        }
+    for name in CHROOT_DEVICES {
+        umount_chroot(&format!("{}/dev/{}", snapshot_path, name),
+                      MntFlags::MNT_DETACH, true)?;
     }
     // Umount chroot /dev/shm
     umount_chroot(&format!("{}/dev/shm", snapshot_path), MntFlags::MNT_DETACH, tolerant)?;
@@ -1110,12 +1331,7 @@ pub fn chroot_check() -> Result<bool, Error> {
 // cannot execute on the host before chroot starts.
 pub fn chroot_exec(path: &str, cmd: &str) -> Result<(), Error> {
     audit_log("chroot-command", &[("root", path), ("command", cmd)]);
-    let excode = Command::new("chroot")
-        .arg(path)
-        .arg("/bin/sh")
-        .arg("-c")
-        .arg(cmd)
-        .status()?;
+    let excode = run_sandboxed_chroot(path, &["-c", cmd])?;
     if !excode.success() {
         return Err(
             Error::new(
@@ -1125,10 +1341,10 @@ pub fn chroot_exec(path: &str, cmd: &str) -> Result<(), Error> {
     Ok(())
 }
 
-// Enter chroot
+// Enter the target root with sandbox hardening applied in the child.
 pub fn chroot_in(path: &str) -> Result<ExitStatus, Error> {
-    let excode = Command::new("chroot").arg(path).status();
-    excode
+    audit_log("chroot-shell", &[("root", path)]);
+    run_sandboxed_chroot(path, &[])
 }
 
 // Clone tree

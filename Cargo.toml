@@ -27,6 +27,7 @@ clap = "4.1.8"
 configparser = { version = "3.0.2", features = ["indexmap"] }
 ctrlc = "3.4.2"
 curl = "0.4.44"
+libc = "0.2"
 libbtrfs = { version = "0.0.12", optional = true }
 nix = "0.26.2"
 partition-identity = "0.3.0"

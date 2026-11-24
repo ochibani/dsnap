@@ -46,6 +46,35 @@ The
 .B auto-upgrade
 service and timer shipped with dsnap are inert by default and are never
 enabled automatically.
+.PP
+Shells and commands entered through dsnap run in a private mount namespace,
+prefer
+.BR pivot_root (2)
+with a chroot fallback, drop unnecessary root capabilities, install a seccomp
+denylist, and set
+.BR no_new_privs .
+Optional AppArmor or SELinux transitions can be requested with the environment
+variables below; a configured transition must succeed or the command is denied.
+User namespaces are not used because dsnap operates on root-owned host
+filesystems; a user namespace without a full UID map would break package
+management, and a full map would not provide a meaningful boundary.
+.PP
+The live recovery shell intentionally keeps the shared
+.I /var
+mount. It no longer exposes the host's full
+.IR /dev ,
+.IR /run ,
+or
+.I /tmp .
+.SH ENVIRONMENT
+.TP
+.B DSNAP_APPARMOR_PROFILE
+If set, dsnap asks AppArmor to transition the chroot shell or command to this
+profile before execution. The profile must already be loaded.
+.TP
+.B DSNAP_SELINUX_CONTEXT
+If set, dsnap asks SELinux to transition the chroot shell or command to this
+context before execution. The context must already be valid on the system.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -56,6 +85,9 @@ state.
 The command failed, a requested snapshot or path does not exist, or an
 operation was rejected.
 .SH FILES
+.TP
+.I /etc/dsnap/export-keys
+Root-owned public keys trusted for verifying signed snapshot exports.
 .TP
 .I /.snapshots
 Btrfs filesystem holding dsnap snapshot subvolumes and metadata.
@@ -125,7 +157,7 @@ Export the base snapshot to a directory:
 .PP
 .nf
 .RS
-dsnap export -s 0 -o /var/tmp
+dsnap export -s 0 -o /var/tmp -k <GPG_KEY_ID>
 .RE
 .fi
 .SH SEE ALSO

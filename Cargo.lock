@@ -261,6 +261,7 @@ dependencies = [
  "ctrlc",
  "curl",
  "libbtrfs",
+ "libc",
  "nix 0.26.4",
  "partition-identity",
  "proc-mounts",
