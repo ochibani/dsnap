@@ -47,6 +47,11 @@ The
 service and timer shipped with dsnap are inert by default and are never
 enabled automatically.
 .PP
+Time synchronization accepts a clock only when at least two verified HTTPS
+sources agree within ten seconds. Local clock helpers are unauthenticated and
+are disabled by default. If explicitly enabled, they are only a bootstrap and
+must still be confirmed by verified HTTPS before dsnap proceeds.
+.PP
 Shells and commands entered through dsnap run in a private mount namespace,
 prefer
 .BR pivot_root (2)
@@ -75,6 +80,16 @@ profile before execution. The profile must already be loaded.
 .B DSNAP_SELINUX_CONTEXT
 If set, dsnap asks SELinux to transition the chroot shell or command to this
 context before execution. The context must already be valid on the system.
+.TP
+.B DSNAP_ALLOW_UNAUTHENTICATED_TIME_SYNC
+Set to
+.BR 1 ,
+.BR true ,
+or
+.B yes
+to allow unauthenticated local clock helpers as a bootstrap when verified
+HTTPS time is unavailable. Local helpers never establish trusted time by
+themselves.
 .SH EXIT STATUS
 .TP
 .B 0

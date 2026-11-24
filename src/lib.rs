@@ -4458,8 +4458,8 @@ fn fetch_date_headers(url: &str) -> Result<String, Error> {
     Ok(String::from_utf8_lossy(&response_headers).into_owned())
 }
 
-// Parse an HTTP Date header and set the system clock from it.
-fn set_time_from_headers(response_headers: &str) -> Result<(), Error> {
+// Parse an HTTP Date header without changing the system clock.
+fn parse_date_header(response_headers: &str) -> Result<NaiveDateTime, Error> {
     let date_header = response_headers
         .lines()
         .find(|line| line.to_lowercase().starts_with("date:"))
@@ -4472,11 +4472,14 @@ fn set_time_from_headers(response_headers: &str) -> Result<(), Error> {
         return Err(Error::new(ErrorKind::Other, "Malformed date header."));
     }
     let value = date_str[2..7].join(" ");
-    let parsed = NaiveDateTime::parse_from_str(&value, "%d %b %Y %H:%M:%S")
-        .map_err(|e| Error::new(ErrorKind::InvalidData, format!("Invalid date header: {}", e)))?;
-    let date = parsed.format("%Y-%m-%d %H:%M:%S UTC").to_string();
+    NaiveDateTime::parse_from_str(&value, "%d %b %Y %H:%M:%S")
+        .map_err(|e| Error::new(ErrorKind::InvalidData, format!("Invalid date header: {}", e)))
+}
 
-    let output = Command::new("date").args(["-u", "-s"]).arg(date).output()?;
+// Set the system clock from a time value that has already been authenticated.
+fn set_system_time(date: NaiveDateTime) -> Result<(), Error> {
+    let formatted = date.format("%Y-%m-%d %H:%M:%S UTC").to_string();
+    let output = Command::new("date").args(["-u", "-s"]).arg(formatted).output()?;
     if !output.status.success() {
         return Err(Error::new(ErrorKind::Other,
                               format!("Failed to set time: {}",
@@ -4485,31 +4488,85 @@ fn set_time_from_headers(response_headers: &str) -> Result<(), Error> {
     Ok(())
 }
 
-// Try a small set of HTTPS endpoints. TLS verification stays enabled; a bad
-// clock will make these fail, which is exactly why local time services are
-// tried before giving up.
+// Try a small set of HTTPS endpoints. TLS verification stays enabled. A
+// single endpoint cannot set the clock; at least two must agree so one bad
+// or compromised response cannot establish trusted time.
 const TIME_SYNC_URLS: [&str; 3] = [
     "https://www.google.com",
     "https://www.cloudflare.com",
     "https://www.microsoft.com",
 ];
+const MAX_TIME_SOURCE_SKEW_SECS: i64 = 10;
+const LOCAL_TIME_SYNC_ENV: &str = "DSNAP_ALLOW_UNAUTHENTICATED_TIME_SYNC";
 
-fn sync_time_from_https() -> Result<(), Error> {
+fn fetch_verified_time(url: &str) -> Result<NaiveDateTime, Error> {
+    let headers = fetch_date_headers(url)?;
+    parse_date_header(&headers)
+}
+
+fn verified_https_time() -> Result<NaiveDateTime, Error> {
+    let mut dates = Vec::new();
     let mut last_err = None;
     for url in TIME_SYNC_URLS {
-        match fetch_date_headers(url).and_then(|headers| set_time_from_headers(&headers)) {
-            Ok(()) => return Ok(()),
+        match fetch_verified_time(url) {
+            Ok(date) => dates.push((url, date)),
             Err(e) => {
                 eprintln!("Time sync from {} failed: {}", url, e);
                 last_err = Some(e);
             }
         }
     }
-    Err(last_err.unwrap_or_else(|| Error::new(ErrorKind::Other, "No HTTPS time source configured.")))
+
+    if dates.len() < 2 {
+        let detail = last_err.map(|e| e.to_string())
+                             .unwrap_or_else(|| "no HTTPS time source responded".to_string());
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Trusted time requires at least two verified HTTPS sources; got {}. {}",
+                                      dates.len(), detail)));
+    }
+
+    // Accept the smallest agreeing cluster. One outlier is tolerated as long
+    // as two verified sources agree within the allowed skew.
+    let mut ordered = dates.clone();
+    ordered.sort_by_key(|(_, date)| *date);
+    let mut start = 0;
+    for end in 0..ordered.len() {
+        while ordered[end].1.signed_duration_since(ordered[start].1).num_seconds()
+              > MAX_TIME_SOURCE_SKEW_SECS {
+            start += 1;
+        }
+        if end - start + 1 >= 2 {
+            return Ok(ordered[start].1);
+        }
+    }
+
+    let (first_url, first_date) = ordered.first().unwrap();
+    let (last_url, last_date) = ordered.last().unwrap();
+    let skew = last_date.signed_duration_since(*first_date).num_seconds();
+    audit_log("time-sync", &[("result", "source-disagreement"),
+                             ("source", first_url),
+                             ("other", last_url)]);
+    Err(Error::new(ErrorKind::InvalidData,
+                   format!("No two verified time sources agree; range is {} seconds.", skew)))
 }
 
-// Try locally installed time daemons/tools. These may use authenticated NTP
-// and avoid weakening TLS verification when the clock is badly wrong.
+fn sync_time_from_https() -> Result<(), Error> {
+    let date = verified_https_time()?;
+    set_system_time(date)?;
+    audit_log("time-sync", &[("result", "verified-https")]);
+    Ok(())
+}
+
+// Local helpers are not authoritative: chronyc, ntpdate and hwclock may be
+// backed by unauthenticated NTP or stale hardware state. They only run when
+// the administrator explicitly accepts that bootstrap risk.
+fn local_time_sync_enabled() -> bool {
+    match std::env::var(LOCAL_TIME_SYNC_ENV) {
+        Ok(value) => matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"),
+        Err(_) => false,
+    }
+}
+
 fn sync_time_locally() -> bool {
     let helpers: [(&str, &[&str]); 3] = [
         ("chronyc", &["makestep"]),
@@ -4517,26 +4574,48 @@ fn sync_time_locally() -> bool {
         ("hwclock", &["-s"]),
     ];
     for (program, args) in helpers {
+        audit_log("time-sync-local-helper", &[("program", program), ("result", "attempt")]);
         match Command::new(program).args(args).status() {
-            Ok(status) if status.success() => return true,
-            Ok(_) => {}
-            Err(_) => {}
+            Ok(status) if status.success() => {
+                audit_log("time-sync-local-helper", &[("program", program), ("result", "success")]);
+                return true;
+            }
+            Ok(_) => {
+                audit_log("time-sync-local-helper", &[("program", program), ("result", "failed")]);
+            }
+            Err(e) => {
+                audit_log("time-sync-local-helper", &[("program", program), ("result", "error")]);
+                eprintln!("Local time helper {} failed: {}", program, e);
+            }
         }
     }
     false
 }
 
-// Sync time without disabling TLS verification. If all HTTPS attempts fail,
-// try a local time service and then retry HTTPS.
+// Sync time without disabling TLS verification. Trusted time comes only from
+// at least two agreeing verified HTTPS sources. Unauthenticated local helpers
+// are disabled unless explicitly opted in, and even then must be confirmed by
+// verified HTTPS before this function succeeds.
 pub fn sync_time() -> Result<(), Error> {
     if sync_time_from_https().is_ok() {
         return Ok(());
     }
+
+    if !local_time_sync_enabled() {
+        audit_log("time-sync", &[("result", "failed-closed")]);
+        return Err(Error::new(ErrorKind::PermissionDenied,
+                              format!("Unable to establish trusted time from at least two verified HTTPS sources. Local clock helpers are unauthenticated and disabled. Set the clock manually, or set {}=1 to accept them as a bootstrap, then retry.",
+                                      LOCAL_TIME_SYNC_ENV)));
+    }
+
+    eprintln!("warning: using unauthenticated local time helpers; trusted time still requires at least two verified HTTPS sources.");
     if sync_time_locally() && sync_time_from_https().is_ok() {
         return Ok(());
     }
+
+    audit_log("time-sync", &[("result", "failed-after-local-helper")]);
     Err(Error::new(ErrorKind::Other,
-                   "Unable to sync time from a verified HTTPS source. Set the clock manually or configure chrony/ntpdate, then retry."))
+                   "Unable to establish trusted time from at least two verified HTTPS sources, even after local helpers. Set the clock manually and retry."))
 }
 
 // Clear all temporary snapshots
