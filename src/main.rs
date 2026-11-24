@@ -847,9 +847,11 @@ fn main() -> ExitCode {
                 let noconfirm = install_matches.get_flag("noconfirm");
                 let force = install_matches.get_flag("force");
                 let secondary = install_matches.get_flag("secondary");
+                let allow_unverified = install_matches.get_flag("ALLOW_UNVERIFIED");
 
                 // Run install_triage
-                let run = install_triage(&snapshot, live, pkgs, &profile, force, &user_profile, noconfirm, secondary);
+                let run = install_triage(&snapshot, live, pkgs, &profile, force, &user_profile, noconfirm, secondary,
+                                         allow_unverified);
                 match run {
                     Ok(_) => (),
                     Err(e) => fail!("{}", e),
@@ -1142,9 +1144,11 @@ fn main() -> ExitCode {
                 let noconfirm = tinstall_matches.get_flag("noconfirm");
                 let force = tinstall_matches.get_flag("force");
                 let secondary = tinstall_matches.get_flag("secondary");
+                let allow_unverified = tinstall_matches.get_flag("ALLOW_UNVERIFIED");
 
                 // Run tree_install
-                let run = tree_install(&treename, &pkgs, &profiles, force, &user_profiles, noconfirm, secondary);
+                let run = tree_install(&treename, &pkgs, &profiles, force, &user_profiles, noconfirm, secondary,
+                                       allow_unverified);
                 match run {
                     Ok(_) => (),
                     Err(e) => fail!("{}", e),
@@ -1212,9 +1216,10 @@ fn main() -> ExitCode {
 
                 // Optional value
                 let noconfirm = tremove_matches.get_flag("noconfirm");
+                let allow_unverified = tremove_matches.get_flag("ALLOW_UNVERIFIED");
 
                 // Run tree_remove
-                let run = tree_remove(&treename, &pkgs, &profiles, &user_profiles, noconfirm);
+                let run = tree_remove(&treename, &pkgs, &profiles, &user_profiles, noconfirm, allow_unverified);
                 match run {
                     Ok(_) => println!("Tree {} updated.", treename),
                     Err(e) => fail!("{}", e),
@@ -1320,9 +1325,11 @@ fn main() -> ExitCode {
                 // Uninstall options
                 let live = uninstall_matches.get_flag("live");
                 let noconfirm = uninstall_matches.get_flag("noconfirm");
+                let allow_unverified = uninstall_matches.get_flag("ALLOW_UNVERIFIED");
 
                 // Run uninstall_triage
-                let run = uninstall_triage(&snapshot, live, pkgs, &profile, &user_profile, noconfirm);
+                let run = uninstall_triage(&snapshot, live, pkgs, &profile, &user_profile, noconfirm,
+                                           allow_unverified);
                 match run {
                     Ok(_) => (),
                     Err(e) => fail!("{}", e),

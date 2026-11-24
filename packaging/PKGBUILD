@@ -27,6 +27,8 @@ build() {
 
 package() {
   install -d -m755 "$pkgdir/etc/dsnap/export-keys"
+  install -d -m755 "$pkgdir/etc/dsnap/profiles.d"
+  install -d -m755 "$pkgdir/etc/dsnap/profile-keys"
   mkdir -p "$pkgdir/usr/bin/"
   cd "$pkgname"
   install -Dm755 "target/release/dsnap" "${pkgdir}/usr/bin/dsnap"

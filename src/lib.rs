@@ -156,7 +156,7 @@ pub fn validate_user_profile(path: &str) -> Result<(), Error> {
     }
     let meta = symlink_metadata(profile).map_err(|e| Error::new(ErrorKind::InvalidInput,
         format!("Cannot read user profile {}: {}", audit_escape(path), e)))?;
-    if !meta.file_type().is_file() || meta.file_type().is_symlink() || meta.mode() & 0o002 != 0 {
+    if !meta.file_type().is_file() || meta.file_type().is_symlink() || meta.mode() & 0o022 != 0 {
         return Err(Error::new(ErrorKind::InvalidInput,
                               format!("Unsafe user profile path: {}", audit_escape(path))));
     }
@@ -164,13 +164,145 @@ pub fn validate_user_profile(path: &str) -> Result<(), Error> {
     while let Some(dir) = parent {
         let dir_meta = symlink_metadata(&dir).map_err(|e| Error::new(ErrorKind::InvalidInput,
             format!("Cannot read profile directory {}: {}", dir.display(), e)))?;
-        if dir_meta.file_type().is_symlink() || dir_meta.mode() & 0o002 != 0 {
+        if dir_meta.file_type().is_symlink() || dir_meta.mode() & 0o022 != 0 {
             return Err(Error::new(ErrorKind::InvalidInput,
                                   format!("Unsafe profile directory: {}", dir.display())));
         }
         parent = dir.parent().map(Path::to_path_buf);
     }
     Ok(())
+}
+
+// Paths under these root-controlled directories are trusted without a
+// detached profile signature.
+const TRUSTED_PROFILE_KEYS_DIR: &str = "/etc/dsnap/profile-keys";
+const ALLOWED_PROFILE_DIRS: [&str; 2] = ["/etc/dsnap/profiles.d", "/usr/share/dsnap/profiles"];
+
+// Remove "." components so allowlist matching is stable. validate_user_profile
+// has already rejected ".." and symlinks.
+fn normalized_profile_path(path: &str) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in Path::new(path).components() {
+        match component {
+            Component::RootDir => normalized.push("/"),
+            Component::Normal(part) => normalized.push(part),
+            _ => {}
+        }
+    }
+    normalized
+}
+
+fn profile_path_is_allowlisted(path: &str) -> bool {
+    let normalized = normalized_profile_path(path);
+    ALLOWED_PROFILE_DIRS.iter().any(|dir| normalized.starts_with(dir))
+}
+
+fn profile_path_root_owned(path: &str) -> Result<(), Error> {
+    let meta = symlink_metadata(path)?;
+    if meta.uid() != 0 || meta.mode() & 0o022 != 0 {
+        return Err(Error::new(ErrorKind::PermissionDenied,
+                              format!("Unsafe user profile {}: must be root-owned and not writable by group or others.",
+                                      audit_escape(path))));
+    }
+    let mut parent = Path::new(path).parent();
+    while let Some(dir) = parent {
+        let dir_meta = symlink_metadata(dir)?;
+        if dir_meta.uid() != 0 || dir_meta.mode() & 0o022 != 0 {
+            return Err(Error::new(ErrorKind::PermissionDenied,
+                                  format!("Unsafe profile directory {}: must be root-owned and not writable by group or others.",
+                                          dir.display())));
+        }
+        parent = dir.parent();
+    }
+    Ok(())
+}
+
+// Verify a detached GPG signature against the profile trust store. The data
+// path is the temporary copy that will be parsed, avoiding a swap between
+// verification and loading.
+fn verify_profile_signature(profile_path: &str, data_path: &str) -> Result<(), Error> {
+    let signature = format!("{}.sig", profile_path);
+    if !Path::new(&signature).is_file() {
+        audit_log("verify-user-profile-signature", &[("path", profile_path), ("result", "missing")]);
+        return Err(Error::new(ErrorKind::InvalidInput,
+                              format!("Missing signature file {}. Sign the profile or place it in an allowlisted directory.",
+                                      audit_escape(&signature))));
+    }
+    profile_path_root_owned(&signature)?;
+
+    secure_root_owned_dir(TRUSTED_PROFILE_KEYS_DIR)?;
+    let home = TempDir::new()?;
+    let mut imported = 0;
+    for entry in read_dir(TRUSTED_PROFILE_KEYS_DIR)? {
+        let entry = entry?;
+        secure_root_owned_file(&entry.path())?;
+        let status = Command::new("gpg")
+            .args(["--batch", "--yes", "--homedir"])
+            .arg(home.path())
+            .arg("--import")
+            .arg(entry.path())
+            .status()?;
+        if status.success() {
+            imported += 1;
+        }
+    }
+    if imported == 0 {
+        audit_log("verify-user-profile-signature", &[("path", profile_path), ("result", "no-trusted-keys")]);
+        return Err(Error::new(ErrorKind::PermissionDenied,
+                              format!("No usable public keys found in {}.", TRUSTED_PROFILE_KEYS_DIR)));
+    }
+
+    let status = Command::new("gpg")
+        .args(["--batch", "--homedir"])
+        .arg(home.path())
+        .arg("--verify")
+        .arg(&signature)
+        .arg(data_path)
+        .status()?;
+    if !status.success() {
+        audit_log("verify-user-profile-signature", &[("path", profile_path), ("result", "invalid")]);
+        return Err(Error::new(ErrorKind::InvalidData,
+                              format!("Signature verification failed for {}.", audit_escape(profile_path))));
+    }
+
+    audit_log("verify-user-profile-signature", &[("path", profile_path), ("result", "verified")]);
+    Ok(())
+}
+
+// Load a user profile through one trusted path: allowlisted or signed by
+// default. --allow-unverified is an explicit audited escape hatch that still
+// keeps the structural path checks.
+fn load_user_profile(path: &str, allow_unverified: bool) -> Result<Ini, Error> {
+    validate_user_profile(path)?;
+    let allowlisted = profile_path_is_allowlisted(path);
+    if allowlisted {
+        profile_path_root_owned(path)?;
+    }
+    // Read once and parse the temporary copy so verification and parsing see
+    // exactly the same bytes.
+    let bytes = std::fs::read(path)?;
+    let dir = TempDir::new()?;
+    let temp = dir.path().join("profile.ini");
+    let temp_str = temp.to_string_lossy().into_owned();
+    let mut temp_file = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp)?;
+    temp_file.write_all(&bytes)?;
+    drop(temp_file);
+
+    if allowlisted {
+        audit_log("user-profile", &[("path", path), ("result", "allowlisted")]);
+    } else if allow_unverified {
+        eprintln!("warning: loading {} without signed profile verification; use --allow-unverified only for trusted profiles.", path);
+        audit_log("user-profile", &[("path", path), ("result", "unverified")]);
+    } else {
+        verify_profile_signature(path, &temp_str)?;
+        audit_log("user-profile", &[("path", path), ("result", "signed")]);
+    }
+
+    let mut profconf = Ini::new_cs();
+    profconf.set_comment_symbols(&['#']);
+    profconf.set_multiline(true);
+    profconf.load(&temp_str).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
+    Ok(profconf)
 }
 
 // Paths listed under [system-configuration] are appended to snapshot roots.
@@ -236,7 +368,7 @@ fn secure_root_owned_dir(path: &str) -> Result<(), Error> {
     if meta.file_type().is_symlink() || !meta.file_type().is_dir()
         || meta.uid() != 0 || meta.mode() & 0o022 != 0 {
         return Err(Error::new(ErrorKind::PermissionDenied,
-                              format!("Unsafe export key directory {}: must be a root-owned directory not writable by group or others.",
+                              format!("Unsafe root-owned key directory {}: must be a root-owned directory not writable by group or others.",
                                       audit_escape(path))));
     }
     Ok(())
@@ -248,7 +380,7 @@ fn secure_root_owned_file(path: &Path) -> Result<(), Error> {
     if meta.file_type().is_symlink() || !meta.file_type().is_file()
         || meta.uid() != 0 || meta.mode() & 0o022 != 0 {
         return Err(Error::new(ErrorKind::PermissionDenied,
-                              format!("Unsafe export key file {}: must be a root-owned regular file not writable by group or others.",
+                              format!("Unsafe root-owned key file {}: must be a root-owned regular file not writable by group or others.",
                                       audit_escape(&path.to_string_lossy()))));
     }
     Ok(())
@@ -2878,7 +3010,7 @@ pub fn upgrade_live(snapshot: &str, noconfirm: bool) -> Result<(), Error> {
 
 // Install a profile from a text file
 fn install_profile(snapshot: &str, profile: &str, force: bool, secondary: bool,
-                   user_profile: &str, noconfirm: bool) -> Result<bool, Error> {
+                   user_profile: &str, noconfirm: bool, allow_unverified: bool) -> Result<bool, Error> {
     validate_profile_name(profile)?;
     validate_user_profile(user_profile)?;
     // Get some values
@@ -2933,7 +3065,7 @@ fn install_profile(snapshot: &str, profile: &str, force: bool, secondary: bool,
             profconf.load(&chr_cfile).map_err(|_| Error::new(ErrorKind::NotFound,
                                   format!("Profile {} was not found in the distro-snapper-profiles package.", profile)))?;
         } else if !user_profile.is_empty() {
-            profconf.load(user_profile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
+            profconf = load_user_profile(user_profile, allow_unverified)?;
         } else if !Path::new(&cfile).is_file() && !force {
             return Err(Error::new(ErrorKind::NotFound,
                                   "Please install distro-snapper-profiles package.".to_string()));
@@ -2998,7 +3130,8 @@ fn install_profile(snapshot: &str, profile: &str, force: bool, secondary: bool,
 }
 
 // Install profile in live snapshot
-fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile: &str, noconfirm: bool) -> Result<(), Error> {
+fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile: &str, noconfirm: bool,
+                        allow_unverified: bool) -> Result<(), Error> {
     validate_profile_name(profile)?;
     validate_user_profile(user_profile)?;
     // Get some values
@@ -3040,7 +3173,7 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
             profconf.load(&live_cfile).map_err(|_| Error::new(ErrorKind::NotFound,
                                   format!("Profile {} was not found in the distro-snapper-profiles package.", profile)))?;
         } else if !user_profile.is_empty() {
-            profconf.load(user_profile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
+            profconf = load_user_profile(user_profile, allow_unverified)?;
         } else if !Path::new(&cfile).is_file() && !force {
             return Err(Error::new(ErrorKind::NotFound,
                                   "Please install distro-snapper-profiles package.".to_string()));
@@ -3117,7 +3250,8 @@ fn install_profile_live(snapshot: &str,profile: &str, force: bool, user_profile:
 
 // Triage functions for argparse method
 pub fn install_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: &str, force: bool,
-                      user_profile: &str, noconfirm: bool, secondary: bool) -> Result<(), Error> {
+                      user_profile: &str, noconfirm: bool, secondary: bool,
+                      allow_unverified: bool) -> Result<(), Error> {
     validate_package_specs(&pkgs)?;
     validate_profile_name(profile)?;
     validate_user_profile(user_profile)?;
@@ -3131,7 +3265,7 @@ pub fn install_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: &s
     if !live {
         // Install profile
         if !profile.is_empty() {
-            let secondary = install_profile(snapshot, profile, force, secondary, user_profile, noconfirm)?;
+            let secondary = install_profile(snapshot, profile, force, secondary, user_profile, noconfirm, allow_unverified)?;
             if post_transactions(snapshot).is_ok() {
                 println!("Profile {} installed in snapshot {} successfully.", p, snapshot);
                 if yes_no(
@@ -3154,7 +3288,7 @@ pub fn install_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: &s
 
         } else if !user_profile.is_empty() {
             // Install user_profile
-            let secondary = install_profile(snapshot, profile, force, secondary, user_profile, noconfirm)?;
+            let secondary = install_profile(snapshot, profile, force, secondary, user_profile, noconfirm, allow_unverified)?;
             if post_transactions(snapshot).is_ok() {
                 println!("Profile {} installed in snapshot {} successfully.", p, snapshot);
                 if yes_no(&format!("Would you like to proceed with the deployment of snapshot {}?", snapshot)) {
@@ -3178,7 +3312,7 @@ pub fn install_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: &s
     } else if live && snapshot == &get_current_snapshot()? {
         if !profile.is_empty() {
             // Live profile installation
-            install_profile_live(snapshot, profile, force, user_profile, noconfirm)?;
+            install_profile_live(snapshot, profile, force, user_profile, noconfirm, allow_unverified)?;
             println!("Profile {} installed in current/live snapshot.", p);
 
         } else if !pkgs.is_empty() {
@@ -3188,7 +3322,7 @@ pub fn install_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: &s
 
         } else if !user_profile.is_empty() {
             // Live user_profile installation
-            install_profile_live(snapshot, profile, force, user_profile, noconfirm)?;
+            install_profile_live(snapshot, profile, force, user_profile, noconfirm, allow_unverified)?;
             println!("Profile {} installed in current/live snapshot.", p);
         }
     }
@@ -4671,7 +4805,8 @@ pub fn tmp_delete(secondary: bool) -> Result<(), Error> {
 
 // Recursively install package in tree
 pub fn tree_install(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, force: bool
-                    ,user_profiles: &Vec<String>, noconfirm: bool, secondary: bool) -> Result<(), Error> {
+                    ,user_profiles: &Vec<String>, noconfirm: bool, secondary: bool,
+                    allow_unverified: bool) -> Result<(), Error> {
     // Make sure treename exist
     if !Path::new(&format!("/.snapshots/rootfs/snapshot-{}", treename)).try_exists()? {
         eprintln!("Cannot remove as tree {} doesn't exist.", treename);
@@ -4695,7 +4830,7 @@ pub fn tree_install(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, 
             // Install profiles
             for profile in profiles {
                 let user_profile = "";
-                if install_profile(treename, &profile, force, secondary, &user_profile, noconfirm).is_ok() {
+                if install_profile(treename, &profile, force, secondary, &user_profile, noconfirm, allow_unverified).is_ok() {
                     post_transactions(treename)?;
                 } else {
                     chr_delete(treename)?;
@@ -4706,7 +4841,7 @@ pub fn tree_install(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, 
                 for branch in order {
                     if branch != treename {
                         println!("{}, {}", treename,branch);
-                        if install_profile(&branch, &profile, force, secondary, &user_profile, noconfirm).is_ok() {
+                        if install_profile(&branch, &profile, force, secondary, &user_profile, noconfirm, allow_unverified).is_ok() {
                             post_transactions(&branch)?;
                         } else {
                             chr_delete(&branch)?;
@@ -4720,7 +4855,7 @@ pub fn tree_install(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, 
             // Install profiles
             for user_profile in user_profiles {
                 let profile = "";
-                if install_profile(treename, &profile, force, secondary, &user_profile, noconfirm).is_ok() {
+                if install_profile(treename, &profile, force, secondary, &user_profile, noconfirm, allow_unverified).is_ok() {
                     post_transactions(treename)?;
                 } else {
                     chr_delete(treename)?;
@@ -4731,7 +4866,7 @@ pub fn tree_install(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, 
                 for branch in order {
                     if branch != treename {
                         println!("{}, {}", treename,branch);
-                        if install_profile(&branch, &profile, force, secondary, &user_profile, noconfirm).is_ok() {
+                        if install_profile(&branch, &profile, force, secondary, &user_profile, noconfirm, allow_unverified).is_ok() {
                             post_transactions(&branch)?;
                         } else {
                             chr_delete(&branch)?;
@@ -4747,7 +4882,8 @@ pub fn tree_install(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, 
 }
 
 // Recursively remove package in tree
-pub fn tree_remove(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, user_profiles: &Vec<String>, noconfirm: bool) -> Result<(), Error> {
+pub fn tree_remove(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, user_profiles: &Vec<String>,
+                   noconfirm: bool, allow_unverified: bool) -> Result<(), Error> {
     // Make sure treename exist
     if !Path::new(&format!("/.snapshots/rootfs/snapshot-{}", treename)).try_exists()? {
         eprintln!("Cannot remove as tree {} doesn't exist.", treename);
@@ -4771,7 +4907,7 @@ pub fn tree_remove(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, u
             // Remove profiles
             for profile in profiles {
                 let user_profile = "";
-                if uninstall_profile(treename, &profile, &user_profile, noconfirm).is_ok() {
+                if uninstall_profile(treename, &profile, &user_profile, noconfirm, allow_unverified).is_ok() {
                     post_transactions(treename)?;
                 } else {
                     chr_delete(treename)?;
@@ -4782,7 +4918,7 @@ pub fn tree_remove(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, u
                 for branch in order {
                     if branch != treename {
                         println!("{}, {}", treename,branch);
-                        if uninstall_profile(&branch, &profile, &user_profile, noconfirm).is_ok() {
+                        if uninstall_profile(&branch, &profile, &user_profile, noconfirm, allow_unverified).is_ok() {
                             post_transactions(&branch)?;
                         } else {
                             chr_delete(&branch)?;
@@ -4796,7 +4932,7 @@ pub fn tree_remove(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, u
             // Remove profiles
             for user_profile in user_profiles {
                 let profile = "";
-                if uninstall_profile(treename, &profile, &user_profile, noconfirm).is_ok() {
+                if uninstall_profile(treename, &profile, &user_profile, noconfirm, allow_unverified).is_ok() {
                     post_transactions(treename)?;
                 } else {
                     chr_delete(treename)?;
@@ -4807,7 +4943,7 @@ pub fn tree_remove(treename: &str, pkgs: &Vec<String>, profiles: &Vec<String>, u
                 for branch in order {
                     if branch != treename {
                         println!("{}, {}", treename,branch);
-                        if uninstall_profile(&branch, &profile, &user_profile, noconfirm).is_ok() {
+                        if uninstall_profile(&branch, &profile, &user_profile, noconfirm, allow_unverified).is_ok() {
                             post_transactions(&branch)?;
                         } else {
                             chr_delete(&branch)?;
@@ -5017,7 +5153,8 @@ pub fn uninstall_live(pkgs: &Vec<String>, noconfirm: bool) -> Result<(), Error> 
 }
 
 // Uninstall a profile from a text file
-fn uninstall_profile(snapshot: &str, profile: &str, user_profile: &str, noconfirm: bool) -> Result<(), Error> {
+fn uninstall_profile(snapshot: &str, profile: &str, user_profile: &str, noconfirm: bool,
+                     allow_unverified: bool) -> Result<(), Error> {
     validate_profile_name(profile)?;
     validate_user_profile(user_profile)?;
     // Get some values
@@ -5058,7 +5195,7 @@ fn uninstall_profile(snapshot: &str, profile: &str, user_profile: &str, noconfir
         if Path::new(&cfile).is_file() && user_profile.is_empty() {
             profconf.load(&cfile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
         } else if !user_profile.is_empty() {
-            profconf.load(user_profile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
+            profconf = load_user_profile(user_profile, allow_unverified)?;
         }
 
         // Read commands section in configuration file
@@ -5099,7 +5236,8 @@ fn uninstall_profile(snapshot: &str, profile: &str, user_profile: &str, noconfir
 }
 
 // Uninstall profile in live snapshot
-fn uninstall_profile_live(_snapshot: &str,profile: &str, user_profile: &str, noconfirm: bool) -> Result<(), Error> {
+fn uninstall_profile_live(_snapshot: &str,profile: &str, user_profile: &str, noconfirm: bool,
+                          allow_unverified: bool) -> Result<(), Error> {
     validate_profile_name(profile)?;
     validate_user_profile(user_profile)?;
     // Get some values
@@ -5125,7 +5263,7 @@ fn uninstall_profile_live(_snapshot: &str,profile: &str, user_profile: &str, noc
     if Path::new(&cfile).is_file() && user_profile.is_empty() {
         profconf.load(&cfile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
     } else if !user_profile.is_empty() {
-        profconf.load(user_profile).map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
+        profconf = load_user_profile(user_profile, allow_unverified)?;
     }
 
     // Read packages section in configuration file
@@ -5173,7 +5311,7 @@ fn uninstall_profile_live(_snapshot: &str,profile: &str, user_profile: &str, noc
 
 // Triage functions for argparse method
 pub fn uninstall_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: &str,
-                        user_profile: &str, noconfirm: bool) -> Result<(), Error> {
+                        user_profile: &str, noconfirm: bool, allow_unverified: bool) -> Result<(), Error> {
     validate_package_specs(&pkgs)?;
     validate_profile_name(profile)?;
     validate_user_profile(user_profile)?;
@@ -5187,7 +5325,7 @@ pub fn uninstall_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: 
     if !live {
         // Uninstall profile
         if !profile.is_empty() {
-            uninstall_profile(snapshot, profile, user_profile, noconfirm)?;
+            uninstall_profile(snapshot, profile, user_profile, noconfirm, allow_unverified)?;
             if post_transactions(snapshot).is_ok() {
                 println!("Profile {} removed from snapshot {} successfully.", p, snapshot);
             } else {
@@ -5202,7 +5340,7 @@ pub fn uninstall_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: 
 
         } else if !user_profile.is_empty() {
             // Uninstall user_profile
-            uninstall_profile(snapshot, profile, user_profile, noconfirm)?;
+            uninstall_profile(snapshot, profile, user_profile, noconfirm, allow_unverified)?;
             if post_transactions(snapshot).is_ok() {
                 println!("Profile {} removed from snapshot {} successfully.", p, snapshot);
             } else {
@@ -5221,7 +5359,7 @@ pub fn uninstall_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: 
     } else if live && snapshot == &get_current_snapshot()? {
         if !profile.is_empty() {
             // Live profile uninstall
-            uninstall_profile_live(snapshot, profile, user_profile, noconfirm)?;
+            uninstall_profile_live(snapshot, profile, user_profile, noconfirm, allow_unverified)?;
             println!("Profile {} removed from current/live snapshot.", p);
 
         } else if !pkgs.is_empty() {
@@ -5231,7 +5369,7 @@ pub fn uninstall_triage(snapshot: &str, live: bool, pkgs: Vec<String>, profile: 
 
         } else if !user_profile.is_empty() {
             // Live user_profile uninstall
-            uninstall_profile_live(snapshot, profile, user_profile, noconfirm)?;
+            uninstall_profile_live(snapshot, profile, user_profile, noconfirm, allow_unverified)?;
             println!("Profile {} removed from current/live snapshot.", p);
         }
     }

@@ -52,6 +52,21 @@ sources agree within ten seconds. Local clock helpers are unauthenticated and
 are disabled by default. If explicitly enabled, they are only a bootstrap and
 must still be confirmed by verified HTTPS before dsnap proceeds.
 .PP
+User profiles supplied with
+.B \-\-user\-profile
+must be either in an allowlisted root-controlled directory or accompanied by
+a detached GPG signature from the profile trust store. The
+.B \-\-allow\-unverified
+option skips that authenticity check for trusted legacy profiles; it does not
+skip path validation and it is audit logged.
+.PP
+Sign profiles outside the allowlist with:
+.PP
+.nf
+gpg \-\-armor \-\-detach\-sign /path/to/profile.ini
+install \-m 644 public\-key.asc /etc/dsnap/profile\-keys/
+.fi
+.PP
 Shells and commands entered through dsnap run in a private mount namespace,
 prefer
 .BR pivot_root (2)
@@ -103,6 +118,12 @@ operation was rejected.
 .TP
 .I /etc/dsnap/export-keys
 Root-owned public keys trusted for verifying signed snapshot exports.
+.TP
+.I /etc/dsnap/profiles.d
+Root-controlled allowlist directory for unsigned user profiles.
+.TP
+.I /etc/dsnap/profile-keys
+Root-owned public keys trusted for verifying signed user profiles.
 .TP
 .I /.snapshots
 Btrfs filesystem holding dsnap snapshot subvolumes and metadata.

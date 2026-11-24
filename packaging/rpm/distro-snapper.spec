@@ -41,6 +41,8 @@ cargo build --release --locked --no-default-features --features "base-import,btr
 
 %install
 install -d -m755 %{buildroot}%{_sysconfdir}/dsnap/export-keys
+install -d -m755 %{buildroot}%{_sysconfdir}/dsnap/profiles.d
+install -d -m755 %{buildroot}%{_sysconfdir}/dsnap/profile-keys
 install -Dm755 target/release/dsnap %{buildroot}%{_bindir}/dsnap
 install -Dm644 %{SOURCE1} %{buildroot}%{_unitdir}/dsnap-auto-upgrade.service
 install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/dsnap-auto-upgrade.timer
@@ -54,6 +56,8 @@ install -Dm644 target/release/build/dsnap-*/out/dsnap.fish %{buildroot}%{_datadi
 %license LICENSE
 %{_bindir}/dsnap
 %dir %attr(0755,root,root) %{_sysconfdir}/dsnap/export-keys
+%dir %attr(0755,root,root) %{_sysconfdir}/dsnap/profiles.d
+%dir %attr(0755,root,root) %{_sysconfdir}/dsnap/profile-keys
 %{_mandir}/man8/dsnap*.8*
 %{_unitdir}/dsnap-auto-upgrade.service
 %{_unitdir}/dsnap-auto-upgrade.timer
