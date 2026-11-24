@@ -1,5 +1,9 @@
 # Distro Snapper
 
+## Translations
+
+[English](README.md) · [العربية](translations/ar/README.md)
+
 **Distro Snapper** is a Rust command-line tool for managing
 immutable, tree-shaped Btrfs snapshots on Linux. Each snapshot can keep its own
 package profile, configuration and GRUB boot target.
@@ -9,10 +13,6 @@ package profile, configuration and GRUB boot target.
 > change without compatibility guarantees. Use spare disks or verified backups,
 > and read [`docs/partitioning.md`](docs/partitioning.md) before running
 > commands that modify disks, snapshots or boot entries.
-
-## Translations
-
-[English](README.md) · [العربية](translations/ar/README.md)
 
 ## Quick links
 
