@@ -13,18 +13,18 @@
 > اللقطات وسلوك الأوامر وفحوص السلامة وتكامل الحزم دون أي ضمان للتوافق. استخدم
 > أقراصًا احتياطية أو نسخًا مؤكدة قبل تشغيل الأوامر التي تعدّل الأقراص أو
 > اللقطات أو مداخل الإقلاع، واقرأ
-> [دليل تقسيم الأقراص](../docs/ar/partitioning.md) أولًا.
+> [دليل تقسيم الأقراص](partitioning.md) أولًا.
 
 ## الترجمات
 
-[English](../README.md) · [العربية](README.md)
+[English](../../README.md) · [العربية](README.md)
 
 ## روابط سريعة
 
-- [مسار التثبيت السهل](../docs/ar/partitioning.md#easy-installation-path)
-- [المتطلبات الأساسية](../docs/ar/partitioning.md#hard-requirements)
-- [التخطيط الموصى به](../docs/ar/partitioning.md#recommended-layout)
-- [مرجع الأوامر](../docs/ar/commands.md)
+- [مسار التثبيت السهل](partitioning.md#easy-installation-path)
+- [المتطلبات الأساسية](partitioning.md#hard-requirements)
+- [التخطيط الموصى به](partitioning.md#recommended-layout)
+- [مرجع الأوامر](commands.md)
 - [التاريخ والإسناد](#التاريخ-والإسناد)
 
 ## التاريخ والإسناد

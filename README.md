@@ -16,7 +16,7 @@ The installed command is `dsnap`. Package names use the hyphenated form
 
 ## Translations
 
-[English](README.md) · [العربية](translations/README.ar.md)
+[English](README.md) · [العربية](translations/ar/README.md)
 
 ## Quick links
 

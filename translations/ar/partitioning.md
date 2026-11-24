@@ -1,4 +1,4 @@
-النسخة الإنجليزية: [دليل تقسيم الأقراص](../../docs/partitioning.md) · [الصفحة الرئيسية](../../translations/README.ar.md)
+النسخة الإنجليزية: [دليل تقسيم الأقراص](../../docs/partitioning.md) · [الصفحة الرئيسية](README.md)
 
 # تقسيم الأقراص لـ distro snapper (`dsnap`)
 

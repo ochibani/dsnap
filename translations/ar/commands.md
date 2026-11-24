@@ -1,4 +1,4 @@
-النسخة الإنجليزية: [مرجع الأوامر](../../docs/commands.md) · [الصفحة الرئيسية](../../translations/README.ar.md)
+النسخة الإنجليزية: [مرجع الأوامر](../../docs/commands.md) · [الصفحة الرئيسية](README.md)
 
 # مرجع الأوامر لـ distro snapper (`dsnap`)
 
