@@ -445,3 +445,7 @@ This file is generated from conventional commit subjects.
 
 - Move Arabic docs into translations directory
 
+- Sync Arabic translations with updated docs
+
+- Document source and package builds
+
