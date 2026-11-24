@@ -1,12 +1,8 @@
 # distro snapper
 
-**distro snapper** is a root-only Rust command-line tool for managing
+**distro snapper** is a Rust command-line tool for managing
 immutable, tree-shaped Btrfs snapshots on Linux. Each snapshot can keep its own
 package profile, configuration and GRUB boot target.
-
-The installed command is `dsnap`. Package names use the hyphenated form
-`distro-snapper`, with `distro-snapper-git` for Git builds and
-`distro-snapper-profiles` for bundled profiles.
 
 > **Experimental project.** distro snapper is under active development.
 > Snapshot layouts, command behavior, safety checks and package integration may
@@ -57,7 +53,6 @@ possible:
   [@ShalokShalom](https://github.com/ShalokShalom).
 - **AshOS / ash:** [@i2](https://github.com/i2),
   [@lambdanil](https://github.com/lambdanil),
-  [@ochibani](https://github.com/ochibani),
   [@vireakvibol](https://github.com/vireakvibol),
   [@duhdugg](https://github.com/duhdugg),
   [@xaqbr](https://github.com/xaqbr),
