@@ -429,7 +429,7 @@ pub fn cli() -> Command {
         // Live chroot
         .subcommand(Command::new("live-chroot")
                     .aliases(["lchroot", "lc"])
-                    .about("Open a shell inside currently booted snapshot with read-write access. Changes are discarded on new deployment"))
+                    .about("Administrative recovery action: open a shell inside the currently booted snapshot with read-write access. Changes are discarded on new deployment"))
         // New
         .subcommand(Command::new("new-tree")
                     .alias("new")
