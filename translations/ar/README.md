@@ -1,13 +1,9 @@
 # distro snapper
 
-**distro snapper** أداة سطر أوامر مكتوبة بلغة Rust وتعمل بصلاحيات الجذر فقط،
-لإدارة لقطات Btrfs غير القابلة للتغيير ذات البنية الشجرية على لينكس. يمكن أن
+**distro snapper** أداة سطر أوامر مكتوبة بلغة Rust لإدارة
+لقطات Btrfs غير القابلة للتغيير ذات البنية الشجرية على لينكس. يمكن أن
 تحتفظ كل لقطة بملف تعريف حزم وتكوين خاصين بها، بالإضافة إلى هدف إقلاع GRUB
 خاص بها.
-
-أمر التثبيت هو `dsnap`. وتستخدم أسماء الحزم الشكل المعروف بشرطة
-`distro-snapper`، مع `distro-snapper-git` للبنيات المأخوذة من المستودع،
-و`distro-snapper-profiles` لملفات التعريف المجمّعة.
 
 > **مشروع تجريبي.** لا يزال distro snapper قيد التطوير النشط. قد تتغير بنى
 > اللقطات وسلوك الأوامر وفحوص السلامة وتكامل الحزم دون أي ضمان للتوافق. استخدم
@@ -55,8 +51,7 @@
   [@Rtizie](https://github.com/Rtizie) و
   [@ShalokShalom](https://github.com/ShalokShalom).
 - **AshOS / ash:** [@i2](https://github.com/i2)،
-  [@lambdanil](https://github.com/lambdanil)،
-  [@ochibani](https://github.com/ochibani)،
+  [@lambdanil](https://github.com/lambdanil),
   [@vireakvibol](https://github.com/vireakvibol)،
   [@duhdugg](https://github.com/duhdugg)،
   [@xaqbr](https://github.com/xaqbr)،

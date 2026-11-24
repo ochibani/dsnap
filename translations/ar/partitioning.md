@@ -2,8 +2,7 @@
 
 # تقسيم الأقراص لـ distro snapper (`dsnap`)
 
-يشرح هذا الدليل تخطيط Btrfs المتوقع من **distro snapper**، الذي أمره المثبّت
-هو `dsnap`.
+يشرح هذا الدليل تخطيط Btrfs المتوقع من **distro snapper**.
 
 <a id="easy-installation-path"></a>
 ## مسار التثبيت السهل
@@ -11,9 +10,9 @@
 الطريقة الموصى بها للحصول على تخطيط Btrfs الصحيح هي استخدام الأدوات المرافقة
 بدلًا من تقسيم الأقراص يدويًا:
 
-- استخدم `dinstaller` لتثبيت distro snapper مع تخطيط الوحدات الفرعية المتوقع؛
+- استخدم [`dinstaller`](https://github.com/ochibani/dinstaller) لتثبيت distro snapper مع تخطيط الوحدات الفرعية المتوقع؛
 - استخدم سكربت [`dlive`](https://github.com/ochibani/dlive) لبناء صورة ISO حية
-  تحتوي على `dinstaller` و distro snapper.
+  تحتوي على [`dinstaller`](https://github.com/ochibani/dinstaller) و distro snapper.
 
 لا يزال التقسيم اليدوي مدعومًا، لكن أسهل مسار هو:
 
@@ -27,8 +26,8 @@
 <a id="install-with-dinstaller"></a>
 ### التثبيت باستخدام dinstaller
 
-يُعد `dinstaller` مسار التثبيت الموصى به لـ distro snapper. ومع إعداد داعم
-لـ dsnap، يجب أن ينشئ أو يتحقق من الوحدات الفرعية التالية:
+يُعد [`dinstaller`](https://github.com/ochibani/dinstaller) مسار التثبيت الموصى به لـ distro snapper.
+ومع إعداد داعم لـ dsnap، يجب أن ينشئ أو يتحقق من الوحدات الفرعية التالية:
 
 ```text
 @_linux
@@ -47,33 +46,17 @@
 /boot/efi
 ```
 
-بعد التثبيت، تحقق من النتيجة باستخدام
-[قائمة التحقق](#verification-checklist).
-
 <a id="build-a-live-iso-with-dlive"></a>
 ### بناء صورة ISO حية باستخدام dlive
 
-يمكن لسكربت [`dlive`](https://github.com/ochibani/dlive) بناء صورة ISO حية
-تحتوي على `dinstaller` و distro snapper. لم يُأكَّد اسم سكربت البناء بعد؛ إذ
-يعيد رابط المستودع حاليًا خطأ 404.
+يمكن لملف [`dlive`](https://github.com/ochibani/dlive) الخاص بـ archiso بناء صورة ISO حية
+تحتوي على [`dinstaller`](https://github.com/ochibani/dinstaller) و distro snapper.
 
 ```sh
-git clone https://github.com/ochibani/dlive.git
-cd dlive
-sudo ./<dlive-build-script>.sh
+pacman -S archiso
+mkarchiso -v -r -w /path/to/work_dir -o /path/to/out_dir /path/to/dlive/
+example: mkarchiso -v -r -w /tmp/dinstalleriso-tmp -o ~/out_dir ~/dlive
 ```
-
-يجب أن تحتوي الصورة المولّدة على الأقل على:
-
-- `dinstaller`؛
-- `dsnap`؛
-- `btrfs-progs`؛
-- أدوات GRUB؛
-- `efibootmgr` على أنظمة EFI؛
-- حزم النواة والبرامج الثابتة اللازمة للجهاز المستهدف.
-
-كتابة صورة ISO إلى قرص خاطئ تُتلف البيانات. تحقق من الجهاز المستهدف قبل
-استخدام `dd` أو أي أداة كتابة خام للأقراص.
 
 <a id="scope"></a>
 ## النطاق
@@ -105,8 +88,7 @@ GRUB. لا يُغني هذا الدليل عن توثيق التثبيت الخ�
 @srv_linux              /srv
 ```
 
-تُعد مشاركة `/home` و`/srv` وسلوك `/var` الافتراضي أمرًا مقصودًا. لا تُعدّ
-مساحات المستخدمين (user namespaces) جزءًا من نموذج الثقة.
+تُعد مشاركة `/home` و`/srv` وسلوك `/var` الافتراضي أمرًا مقصودًا.
 
 <a id="example-initial-fstab"></a>
 ## مثال لملف fstab أولي
@@ -124,20 +106,7 @@ UUID=EFI /boot/efi vfat umask=0077 0 2
 <a id="shared-mutable-directories"></a>
 ## المجلدات القابلة للتعديل والمشتركة
 
-تُشارك `/home` و`/srv` وبيانات `/var` الافتراضية بين الأشجار. لا تضع حالة
-اللقطات أو حالة GRUB أو إعدادات `dsnap` في مجلدات مشتركة قابلة للتعديل.
-
-<a id="verification-checklist"></a>
-## قائمة التحقق
-
-```sh
-findmnt -T / -o SOURCE,FSTYPE,OPTIONS
-findmnt -T /.snapshots -o OPTIONS
-btrfs subvolume list /
-sudo dsnap tree
-sudo dsnap current
-sudo dsnap boot-update -s 0
-```
+تُشارك `/home` و`/srv` وبيانات `/var` الافتراضية بين الأشجار.
 
 <a id="common-mistakes"></a>
 ## أخطاء شائعة
