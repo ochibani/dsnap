@@ -137,6 +137,38 @@ pub fn validate_input_path(path: &str) -> Result<(), Error> {
     Ok(())
 }
 
+// Export destinations are where root creates the stream, checksum and
+// signature. Reject symlinked or group/world-writable parent directories so
+// another user cannot redirect those writes.
+fn validate_export_dir(path: &str) -> Result<(), Error> {
+    validate_input_path(path)?;
+    let dir = Path::new(path);
+    if !dir.is_absolute() || dir.components().any(|c| matches!(c, Component::ParentDir)) {
+        return Err(Error::new(ErrorKind::InvalidInput,
+                              format!("Invalid export directory: {}", audit_escape(path))));
+    }
+    for ancestor in dir.ancestors() {
+        let meta = symlink_metadata(ancestor)?;
+        if meta.file_type().is_symlink() || meta.mode() & 0o022 != 0 {
+            return Err(Error::new(ErrorKind::PermissionDenied,
+                                  format!("Unsafe export directory component: {}", ancestor.display())));
+        }
+    }
+    if !dir.is_dir() {
+        return Err(Error::new(ErrorKind::NotFound,
+                              format!("Export directory does not exist: {}", audit_escape(path))));
+    }
+    Ok(())
+}
+
+// Reserve an output path exclusively before a helper writes to it. create_new
+// fails if the path already exists, including as a symlink.
+fn reserve_output_file(path: &str) -> Result<(), Error> {
+    let file = OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
+    drop(file);
+    Ok(())
+}
+
 // User profiles are trusted configuration because they may contain command
 // sections, so reject paths that another user could replace and paths that
 // could traverse outside their parent directory.
@@ -421,7 +453,10 @@ fn checksum_for(path: &str) -> Result<String, Error> {
 fn write_checksum_file(path: &str) -> Result<(), Error> {
     let line = sha512sum_line(path)?;
     let sidecar = format!("{}.sha512", path);
-    std::fs::write(&sidecar, line)?;
+    let mut file = OpenOptions::new().write(true).create_new(true).mode(0o600)
+                                     .open(&sidecar)?;
+    file.write_all(&line)?;
+    file.sync_all()?;
     Ok(())
 }
 
@@ -433,6 +468,7 @@ fn sign_checksum_file(path: &str, signing_key: &str) -> Result<(), Error> {
                               "Invalid GPG signing key."));
     }
     let signature = format!("{}.sig", path);
+    reserve_output_file(&signature)?;
     let status = Command::new("gpg")
         .args(["--batch", "--yes", "--armor", "--detach-sign"])
         .arg(format!("--local-user={}", signing_key))
@@ -440,6 +476,7 @@ fn sign_checksum_file(path: &str, signing_key: &str) -> Result<(), Error> {
         .arg(path)
         .status()?;
     if !status.success() {
+        let _ = std::fs::remove_file(&signature);
         return Err(Error::new(ErrorKind::Other,
                               format!("Failed to sign checksum file {}.", audit_escape(path))));
     }
@@ -2238,6 +2275,7 @@ pub fn export(snapshot: &str, dest: &str, signing_key: &str) -> Result<(), Error
     } else {
         dest.trim_end_matches('/')
     };
+    validate_export_dir(&dest)?;
     // Get current time
     let time = Local::now().naive_local();
     let formatted = time.format("%Y%m%d-%H%M%S%.9f").to_string();
@@ -2247,6 +2285,7 @@ pub fn export(snapshot: &str, dest: &str, signing_key: &str) -> Result<(), Error
     {
         let archive = format!("{}/snapshot-{}.{}.zst", dest, snapshot, formatted);
         let digest = format!("{}.sha512", archive);
+        reserve_output_file(&archive)?;
         // Snapshot, destination and timestamp are positional parameters so
         // spaces and shell metacharacters survive. pipefail is used so a
         // failed btrfs send is not silently ignored when zstd succeeds.
@@ -2258,6 +2297,7 @@ pub fn export(snapshot: &str, dest: &str, signing_key: &str) -> Result<(), Error
                        .arg(formatted)
                        .status()?;
         if !excode.success() {
+            let _ = std::fs::remove_file(&archive);
             return Err(Error::new(ErrorKind::Other,
                                   format!("Failed to export snapshot {} to {}.", snapshot, dest)));
         }

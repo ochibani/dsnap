@@ -67,6 +67,10 @@ gpg \-\-armor \-\-detach\-sign /path/to/profile.ini
 install \-m 644 public\-key.asc /etc/dsnap/profile\-keys/
 .fi
 .PP
+Export destinations must be absolute directories without symlink components
+and must not be writable by group or others. Archive, checksum, and signature
+paths are reserved exclusively before they are written.
+.PP
 Shells and commands entered through dsnap run in a private mount namespace,
 prefer
 .BR pivot_root (2)
