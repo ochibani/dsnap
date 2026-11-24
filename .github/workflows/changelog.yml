@@ -12,34 +12,36 @@ jobs:
   changelog:
     name: Generate changelog
     runs-on: ubuntu-22.04
+    if: github.actor != 'github-actions[bot]'
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref_name }}
           fetch-depth: 0
+          persist-credentials: true
 
       - name: Generate changelog
         uses: orhun/git-cliff-action@v4
-        id: changelog
         with:
           config: cliff.toml
           args: --verbose --unreleased --prepend CHANGELOG.md
         env:
           GITHUB_REPO: ${{ github.repository }}
-          OUTPUT: CHANGELOG.md
+          OUTPUT: ${{ runner.temp }}/git-cliff-changelog.md
 
       - name: Commit changelog
+        env:
+          BRANCH: ${{ github.ref_name }}
         run: |
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "No new entries to add to the changelog."
+            exit 0
+          fi
+
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          set +e
           git add CHANGELOG.md
-          output=$(git commit -m "chore(release): update CHANGELOG.md for ${{ github.ref_name }} [skip ci]")
-          rc=$?
-          set -e
-          if [ $rc -eq 0 ]; then
-            git push
-          else
-            echo "$output"
-            echo "No new entries to add to the changelog."
-          fi
+          git commit -m "chore(release): update CHANGELOG.md [skip ci]"
+          git push origin "HEAD:${BRANCH}"
