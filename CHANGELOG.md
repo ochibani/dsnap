@@ -437,3 +437,11 @@ This file is generated from conventional commit subjects.
 
 - Sanitize helper environment and editor path
 
+- Add project documentation
+
+- Add arabic documentation translations
+
+- Group README translations in one directory
+
+- Move Arabic docs into translations directory
+
