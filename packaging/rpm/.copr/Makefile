@@ -1,15 +1,20 @@
 NAME := distro-snapper
-REPO_ROOT := $(abspath ../..)
-VERSION := $(shell awk '/^Version:/{print $$2}' $(NAME).spec)
-TOPDIR := $(REPO_ROOT)/.rpmbuild
-SOURCES := $(TOPDIR)/SOURCES
-SPECS := $(TOPDIR)/SPECS
-SRPMS := $(TOPDIR)/SRPMS
+REPO_ROOT := $(shell git -C . rev-parse --show-toplevel)
+SPEC_DEFAULT := $(REPO_ROOT)/packaging/rpm/$(NAME).spec
+SPEC := $(if $(spec),$(spec),$(SPEC_DEFAULT))
+VERSION := $(shell awk '/^Version:/{print $$2}' $(SPEC))
+BUILDROOT := $(shell mktemp -d)
+SOURCES := $(BUILDROOT)/SOURCES
+SPECS := $(BUILDROOT)/SPECS
+
+ifndef outdir
+$(error outdir is required)
+endif
 
 .PHONY: srpm
 
 srpm:
-	mkdir -p $(SOURCES) $(SPECS) $(SRPMS)
+	mkdir -p $(outdir) $(SOURCES) $(SPECS)
 
 	git -C $(REPO_ROOT) archive --format=tar.gz \
 		--prefix=$(NAME)-$(VERSION)/ \
@@ -20,13 +25,11 @@ srpm:
 	cp $(REPO_ROOT)/packaging/systemd/dsnap-auto-upgrade.service $(SOURCES)/packaging/systemd/
 	cp $(REPO_ROOT)/packaging/systemd/dsnap-auto-upgrade.timer $(SOURCES)/packaging/systemd/
 
-	cp $(NAME).spec $(SPECS)/
+	cp $(SPEC) $(SPECS)/$(NAME).spec
 
 	rpmbuild -bs \
-		--define "_topdir $(TOPDIR)" \
+		--define "_topdir $(BUILDROOT)" \
 		--define "_sourcedir $(SOURCES)" \
 		--define "_specdir $(SPECS)" \
-		--define "_srcrpmdir $(SRPMS)" \
+		--define "_srcrpmdir $(outdir)" \
 		$(SPECS)/$(NAME).spec
-
-	mv $(SRPMS)/$(NAME)-$(VERSION)-*.src.rpm ./
