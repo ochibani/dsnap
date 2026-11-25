@@ -1,5 +1,6 @@
 NAME := distro-snapper
-REPO_ROOT := $(shell git -C . rev-parse --show-toplevel)
+THIS_MAKEFILE := $(abspath $(lastword $(MAKEFILE_LIST)))
+REPO_ROOT := $(abspath $(dir $(THIS_MAKEFILE))/..)
 SPEC_DEFAULT := $(REPO_ROOT)/packaging/rpm/$(NAME).spec
 SPEC := $(if $(spec),$(spec),$(SPEC_DEFAULT))
 VERSION := $(shell awk '/^Version:/{print $$2}' $(SPEC))
@@ -16,10 +17,14 @@ endif
 srpm:
 	mkdir -p $(outdir) $(SOURCES) $(SPECS)
 
-	git -C $(REPO_ROOT) archive --format=tar.gz \
-		--prefix=$(NAME)-$(VERSION)/ \
-		-o $(SOURCES)/$(NAME)-$(VERSION).tar.gz \
-		HEAD
+	tar -C $(REPO_ROOT) \
+		--transform='s,^\./,$(NAME)-$(VERSION)/,' \
+		--exclude='./.git' \
+		--exclude='./.rpmbuild' \
+		--exclude='./target' \
+		--exclude='*.src.rpm' \
+		-czf $(SOURCES)/$(NAME)-$(VERSION).tar.gz \
+		.
 
 	mkdir -p $(SOURCES)/packaging/systemd
 	cp $(REPO_ROOT)/packaging/systemd/dsnap-auto-upgrade.service $(SOURCES)/packaging/systemd/
