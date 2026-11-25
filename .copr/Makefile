@@ -26,9 +26,8 @@ srpm:
 		-czf $(SOURCES)/$(NAME)-$(VERSION).tar.gz \
 		.
 
-	mkdir -p $(SOURCES)/packaging/systemd
-	cp $(REPO_ROOT)/packaging/systemd/dsnap-auto-upgrade.service $(SOURCES)/packaging/systemd/
-	cp $(REPO_ROOT)/packaging/systemd/dsnap-auto-upgrade.timer $(SOURCES)/packaging/systemd/
+	cp $(REPO_ROOT)/packaging/systemd/dsnap-auto-upgrade.service $(SOURCES)/
+	cp $(REPO_ROOT)/packaging/systemd/dsnap-auto-upgrade.timer $(SOURCES)/
 
 	cp $(SPEC) $(SPECS)/$(NAME).spec
 
