@@ -457,3 +457,5 @@ This file is generated from conventional commit subjects.
 
 - Remove git dependency from COPR srpm builder
 
+- Install generated manpages with current Cargo layout
+
