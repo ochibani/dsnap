@@ -1,6 +1,7 @@
 NAME := distro-snapper
-VERSION := $(shell awk '/^Version:/{print $$2}' packaging/rpm/distro-snapper.spec)
-TOPDIR := $(CURDIR)/.rpmbuild
+REPO_ROOT := $(abspath ../..)
+VERSION := $(shell awk '/^Version:/{print $$2}' $(NAME).spec)
+TOPDIR := $(REPO_ROOT)/.rpmbuild
 SOURCES := $(TOPDIR)/SOURCES
 SPECS := $(TOPDIR)/SPECS
 SRPMS := $(TOPDIR)/SRPMS
@@ -10,16 +11,16 @@ SRPMS := $(TOPDIR)/SRPMS
 srpm:
 	mkdir -p $(SOURCES) $(SPECS) $(SRPMS)
 
-	git archive --format=tar.gz \
+	git -C $(REPO_ROOT) archive --format=tar.gz \
 		--prefix=$(NAME)-$(VERSION)/ \
 		-o $(SOURCES)/$(NAME)-$(VERSION).tar.gz \
 		HEAD
 
 	mkdir -p $(SOURCES)/packaging/systemd
-	cp packaging/systemd/dsnap-auto-upgrade.service $(SOURCES)/packaging/systemd/
-	cp packaging/systemd/dsnap-auto-upgrade.timer $(SOURCES)/packaging/systemd/
+	cp $(REPO_ROOT)/packaging/systemd/dsnap-auto-upgrade.service $(SOURCES)/packaging/systemd/
+	cp $(REPO_ROOT)/packaging/systemd/dsnap-auto-upgrade.timer $(SOURCES)/packaging/systemd/
 
-	cp packaging/rpm/$(NAME).spec $(SPECS)/
+	cp $(NAME).spec $(SPECS)/
 
 	rpmbuild -bs \
 		--define "_topdir $(TOPDIR)" \
