@@ -17,11 +17,16 @@ override_dh_auto_install:
 	install -Dm755 target/release/dsnap debian/distro-snapper/usr/bin/dsnap
 	install -Dm644 packaging/systemd/dsnap-auto-upgrade.service debian/distro-snapper/usr/lib/systemd/system/dsnap-auto-upgrade.service
 	install -Dm644 packaging/systemd/dsnap-auto-upgrade.timer debian/distro-snapper/usr/lib/systemd/system/dsnap-auto-upgrade.timer
-	install -Dm644 target/release/build/dsnap-*/out/dsnap.8 debian/distro-snapper/usr/share/man/man8/dsnap.8
-	install -m644 target/release/build/dsnap-*/out/dsnap-*.8 debian/distro-snapper/usr/share/man/man8/
-	install -Dm644 target/release/build/dsnap-*/out/dsnap.bash debian/distro-snapper/usr/share/bash-completion/completions/dsnap
-	install -Dm644 target/release/build/dsnap-*/out/_dsnap debian/distro-snapper/usr/share/zsh/vendor-completions/_dsnap
-	install -Dm644 target/release/build/dsnap-*/out/dsnap.fish debian/distro-snapper/usr/share/fish/vendor_completions.d/dsnap.fish
+	MAN_OUT=$$(dirname "$$(find target/release/build -type f -name dsnap.8 -print -quit)"); \
+	test -f "$$MAN_OUT/dsnap.8"; \
+	install -Dm644 "$$MAN_OUT/dsnap.8" debian/distro-snapper/usr/share/man/man8/dsnap.8; \
+	for manpage in "$$MAN_OUT"/dsnap-*.8; do \
+		[ -e "$$manpage" ] || continue; \
+		install -m644 "$$manpage" debian/distro-snapper/usr/share/man/man8/; \
+	done; \
+	install -Dm644 "$$MAN_OUT/dsnap.bash" debian/distro-snapper/usr/share/bash-completion/completions/dsnap; \
+	install -Dm644 "$$MAN_OUT/_dsnap" debian/distro-snapper/usr/share/zsh/vendor-completions/_dsnap; \
+	install -Dm644 "$$MAN_OUT/dsnap.fish" debian/distro-snapper/usr/share/fish/vendor_completions.d/dsnap.fish
 
 # Ship the units but never enable or start them (disabled by default).
 override_dh_installsystemd:

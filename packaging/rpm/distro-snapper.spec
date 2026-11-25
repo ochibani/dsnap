@@ -17,6 +17,7 @@ BuildRequires:  libcurl-devel
 BuildRequires:  python3-devel
 BuildRequires:  cargo
 BuildRequires:  rust
+BuildRequires:  systemd-rpm-macros
 
 Requires:       btrfs-progs
 Requires:       curl
@@ -46,11 +47,19 @@ install -d -m755 %{buildroot}%{_sysconfdir}/dsnap/profile-keys
 install -Dm755 target/release/dsnap %{buildroot}%{_bindir}/dsnap
 install -Dm644 %{SOURCE1} %{buildroot}%{_unitdir}/dsnap-auto-upgrade.service
 install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/dsnap-auto-upgrade.timer
-install -Dm644 target/release/build/dsnap-*/out/dsnap.8 %{buildroot}%{_mandir}/man8/dsnap.8
-install -m644 target/release/build/dsnap-*/out/dsnap-*.8 %{buildroot}%{_mandir}/man8/
-install -Dm644 target/release/build/dsnap-*/out/dsnap.bash %{buildroot}%{_datadir}/bash-completion/completions/dsnap
-install -Dm644 target/release/build/dsnap-*/out/_dsnap %{buildroot}%{_datadir}/zsh/site-functions/_dsnap
-install -Dm644 target/release/build/dsnap-*/out/dsnap.fish %{buildroot}%{_datadir}/fish/vendor_completions.d/dsnap.fish
+
+MAN_OUT=$(dirname "$(find target/release/build -type f -name dsnap.8 -print -quit)")
+test -f "$MAN_OUT/dsnap.8"
+
+install -Dm644 "$MAN_OUT/dsnap.8" %{buildroot}%{_mandir}/man8/dsnap.8
+for manpage in "$MAN_OUT"/dsnap-*.8; do
+    [ -e "$manpage" ] || continue
+    install -m644 "$manpage" %{buildroot}%{_mandir}/man8/
+done
+
+install -Dm644 "$MAN_OUT/dsnap.bash" %{buildroot}%{_datadir}/bash-completion/completions/dsnap
+install -Dm644 "$MAN_OUT/_dsnap" %{buildroot}%{_datadir}/zsh/site-functions/_dsnap
+install -Dm644 "$MAN_OUT/dsnap.fish" %{buildroot}%{_datadir}/fish/vendor_completions.d/dsnap.fish
 
 %files
 %license LICENSE
