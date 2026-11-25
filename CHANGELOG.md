@@ -6,6 +6,14 @@ This file is generated from conventional commit subjects.
 ## Changes
 
 
+### Fixes
+
+
+- Move COPR Makefile to repository root
+
+## Changes
+
+
 ### Features
 
 
