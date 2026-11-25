@@ -6,14 +6,6 @@ This file is generated from conventional commit subjects.
 ## Changes
 
 
-### Fixes
-
-
-- Move COPR Makefile to repository root
-
-## Changes
-
-
 ### Features
 
 
@@ -460,4 +452,8 @@ This file is generated from conventional commit subjects.
 - Capitalize Distro Snapper name
 
 - Show translation options first in READMEs
+
+- Move COPR Makefile to repository root
+
+- Remove git dependency from COPR srpm builder
 
