@@ -13,8 +13,6 @@ on:
       - 'packaging/debian/**'
       - 'packaging/update-obs.sh'
       - '.github/workflows/update-obs.yml'
-    paths-ignore:
-      - 'packaging/obs/**'
 
 permissions:
   contents: write
@@ -28,6 +26,9 @@ jobs:
           ref: main
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Fetch tags
+        run: git fetch --tags --force
 
       - name: Regenerate OBS files
         env:
@@ -43,5 +44,5 @@ jobs:
             echo "No OBS changes"
             exit 0
           fi
-          git commit -m "chore: update OBS packaging [skip ci]"
+          git commit -m "chore: update OBS packaging"
           git push origin HEAD:main
