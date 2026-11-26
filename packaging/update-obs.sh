@@ -3,8 +3,6 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 OBS="$ROOT/packaging/obs"
-ARCH="$OBS/distro-snapper-arch"
-DEB="$OBS/distro-snapper-debian"
 
 if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
   VERSION="${GITHUB_REF_NAME#v}"
@@ -24,59 +22,87 @@ if ! command -v "$CARGO" >/dev/null 2>&1 && [[ -x "$HOME/.cargo/bin/cargo" ]]; t
   CARGO="$HOME/.cargo/bin/cargo"
 fi
 
-mkdir -p "$ARCH" "$DEB"
+mkdir -p "$OBS"
 
-printf 'Prefer: rust\n' > "$OBS/_config"
-
-# Source tarball for Arch and Debian.
-git -C "$ROOT" archive --format=tar.gz \
-  --prefix="distro-snapper-$VERSION/" \
-  -o "$ARCH/distro-snapper-$VERSION.tar.gz" \
-  "$REF"
-
-cp "$ARCH/distro-snapper-$VERSION.tar.gz" \
-  "$DEB/distro-snapper_$VERSION.orig.tar.gz"
-
-# Keep exactly one source archive per OBS package.
-find "$ARCH" -maxdepth 1 -type f -name 'distro-snapper-*.tar.gz' \
-  ! -name "distro-snapper-$VERSION.tar.gz" -delete
-
-find "$ARCH" -maxdepth 1 -type f -name 'cargo-vendor-*.tar.xz' \
-  ! -name "cargo-vendor-$VERSION.tar.xz" -delete
-
-find "$DEB" -maxdepth 1 -type f -name 'distro-snapper_*.orig.tar.gz' \
-  ! -name "distro-snapper_$VERSION.orig.tar.gz" -delete
-
-# Vendored Cargo sources for offline OBS builds.
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
+printf 'Prefer: rust\n' > "$OBS/_config"
+
+# Clean upstream source archive used by the Arch PKGBUILD.
+# Exclude packaging/obs so generated OBS artifacts never recurse into the source.
+mkdir -p "$TMP/src/distro-snapper-$VERSION"
+git -C "$ROOT" archive "$REF" \
+  | tar -x -C "$TMP/src/distro-snapper-$VERSION"
+rm -rf "$TMP/src/distro-snapper-$VERSION/packaging/obs"
+tar -czf "$OBS/distro-snapper-$VERSION.tar.gz" \
+  -C "$TMP/src" \
+  "distro-snapper-$VERSION"
+
+# Vendored Cargo sources for offline OBS builds.
 (
   cd "$ROOT"
   PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 \
     "$CARGO" vendor --locked "$TMP/vendor"
 )
 
-tar -cJf "$ARCH/cargo-vendor-$VERSION.tar.xz" -C "$TMP" vendor
+tar -cJf "$OBS/cargo-vendor-$VERSION.tar.xz" -C "$TMP" vendor
 
-# The canonical PKGBUILD is now OBS-safe.
+# Debian orig archive carries the same vendored sources so it can build offline.
+mkdir -p "$TMP/deb"
+tar -xzf "$OBS/distro-snapper-$VERSION.tar.gz" -C "$TMP/deb"
+
+DEB_SRC="$TMP/deb/distro-snapper-$VERSION"
+mkdir -p "$DEB_SRC/vendor"
+cp -a "$TMP/vendor/." "$DEB_SRC/vendor/"
+
+mkdir -p "$DEB_SRC/.cargo"
+cat > "$DEB_SRC/.cargo/config.toml" <<'CONFIG'
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+CONFIG
+
+tar -czf "$OBS/distro-snapper_$VERSION.orig.tar.gz" \
+  -C "$TMP/deb" \
+  "distro-snapper-$VERSION"
+
+# Keep exactly one archive of each kind in the OBS package.
+find "$OBS" -maxdepth 1 -type f -name 'distro-snapper-*.tar.gz' \
+  ! -name "distro-snapper-$VERSION.tar.gz" -delete
+
+find "$OBS" -maxdepth 1 -type f -name 'cargo-vendor-*.tar.xz' \
+  ! -name "cargo-vendor-$VERSION.tar.xz" -delete
+
+find "$OBS" -maxdepth 1 -type f -name 'distro-snapper_*.orig.tar.gz' \
+  ! -name "distro-snapper_$VERSION.orig.tar.gz" -delete
+
+# The canonical PKGBUILD is OBS-safe and lives at the package root.
 if [[ "${SYNC_PKGBUILD:-1}" == "1" ]]; then
-  cp "$ROOT/packaging/PKGBUILD" "$ARCH/PKGBUILD"
+  cp "$ROOT/packaging/PKGBUILD" "$OBS/PKGBUILD"
 fi
 
-# Debian files use OBS debtransform names.
+# New release: reset Arch pkgver/pkgrel.
+if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -f "$OBS/PKGBUILD" ]]; then
+  sed -i "s/^pkgver=.*/pkgver=$VERSION/" "$OBS/PKGBUILD"
+  sed -i 's/^pkgrel=.*/pkgrel=1/' "$OBS/PKGBUILD"
+fi
+
+# Debian files use OBS debtransform names at the package root.
 for f in changelog control copyright rules; do
-  cp "$ROOT/packaging/debian/$f" "$DEB/debian.$f"
+  cp "$ROOT/packaging/debian/$f" "$OBS/debian.$f"
 done
 
 # Preserve the Debian revision on content-only updates; reset on release tags.
 REV=1
-if [[ "${GITHUB_REF_TYPE:-}" != "tag" && -f "$DEB/distro-snapper.dsc" ]]; then
-  current=$(sed -n 's/^Version: *[^ -]*-\([0-9]\+\).*/\1/p' "$DEB/distro-snapper.dsc" | head -n1)
+if [[ "${GITHUB_REF_TYPE:-}" != "tag" && -f "$OBS/distro-snapper.dsc" ]]; then
+  current=$(sed -n 's/^Version: *[^ -]*-\([0-9]\+\).*/\1/p' "$OBS/distro-snapper.dsc" | head -n1)
   [[ -n "$current" ]] && REV="$current"
 fi
 
-cat > "$DEB/distro-snapper.dsc" <<EOF
+cat > "$OBS/distro-snapper.dsc" <<EOF
 Format: 3.0 (quilt)
 Source: distro-snapper
 Version: $VERSION-$REV
@@ -86,10 +112,5 @@ Architecture: any
 Homepage: https://github.com/ochibani/dsnap
 Standards-Version: 4.7.0
 Build-Depends: debhelper-compat (= 13), cargo, rustc, pkg-config, libssl-dev, libcurl4-openssl-dev, libpython3-dev, file
+DEBTRANSFORM-TAR: distro-snapper_$VERSION.orig.tar.gz
 EOF
-
-# New release: reset Arch pkgver/pkgrel.
-if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -f "$ARCH/PKGBUILD" ]]; then
-  sed -i "s/^pkgver=.*/pkgver=$VERSION/" "$ARCH/PKGBUILD"
-  sed -i 's/^pkgrel=.*/pkgrel=1/' "$ARCH/PKGBUILD"
-fi
