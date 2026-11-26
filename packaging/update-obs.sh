@@ -46,6 +46,28 @@ tar -czf "$OBS/distro-snapper-$VERSION.tar.gz" \
     "$CARGO" vendor --locked "$TMP/vendor"
 )
 
+# Debian's dh_clean removes *.orig files from the unpacked source tree, but
+# Cargo's checksum manifests still reference them. Drop those files and their
+# checksum entries before archiving the vendor tree.
+find "$TMP/vendor" -type f -name Cargo.toml.orig -delete
+python3 - "$TMP/vendor" <<'PY'
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+for checksum in root.glob("*/.cargo-checksum.json"):
+    data = json.loads(checksum.read_text())
+    files = data.get("files", {})
+    for name in [
+        name
+        for name in files
+        if pathlib.PurePosixPath(name).name == "Cargo.toml.orig"
+    ]:
+        del files[name]
+    checksum.write_text(json.dumps(data, separators=(",", ":")))
+PY
+
 tar -cJf "$OBS/cargo-vendor-$VERSION.tar.xz" -C "$TMP" vendor
 
 # Debian orig archive carries the same vendored sources so it can build offline.
