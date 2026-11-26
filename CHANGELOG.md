@@ -459,3 +459,9 @@ This file is generated from conventional commit subjects.
 
 - Install generated manpages with current Cargo layout
 
+- Use release-based distro-snapper Arch package
+
+- Generate OBS packaging sources
+
+- Flatten OBS packaging layout
+
