@@ -1,44 +1,98 @@
 # Maintainer: Chibani <11yzyv86j@relay.firefox.com>
-pkgname="distro-snapper-git"
-pkgver=r470.9953135
+pkgname=distro-snapper
+pkgver=0.1.0
 pkgrel=1
 pkgdesc="Manage immutable tree-shaped btrfs snapshots."
 url="https://github.com/ochibani/dsnap"
 arch=("x86_64")
 license=("AGPL-3.0-only")
-depends=("btrfs-progs" "coreutils" "curl" "efibootmgr" "gnupg" "pacman" "paru" "python-anytree" "rc-local")
-makedepends=("cargo" "git")
-optdepends=("grub" "systemd")
-provides=("distro-snapper")
-conflicts=("distro-snapper")
-source=("$pkgname::git+https://github.com/ochibani/dsnap.git")
-sha512sums=('SKIP')
+depends=("btrfs-progs" "coreutils" "curl" "efibootmgr" "gnupg" "pacman" "python-anytree")
+makedepends=("cargo" "pkgconf" "curl" "openssl" "python")
+optdepends=("grub" "systemd" "paru: AUR package support")
+provides=("distro-snapper-git")
+conflicts=("distro-snapper-git")
 
-pkgver() {
-  cd "$pkgname"
-  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+_srcdir() {
+  if [[ -d "$srcdir/distro-snapper-$pkgver" ]]; then
+    printf '%s' "$srcdir/distro-snapper-$pkgver"
+  elif [[ -d "$srcdir/dsnap-$pkgver" ]]; then
+    printf '%s' "$srcdir/dsnap-$pkgver"
+  else
+    printf '%s' "$srcdir/$pkgname-$pkgver"
+  fi
+}
+
+if [[ -f "distro-snapper-$pkgver.tar.gz" && -f "cargo-vendor-$pkgver.tar.xz" ]]; then
+  source=(
+    "distro-snapper-$pkgver.tar.gz"
+    "cargo-vendor-$pkgver.tar.xz"
+  )
+  sha512sums=('SKIP' 'SKIP')
+else
+  source=("https://github.com/ochibani/dsnap/archive/refs/tags/v$pkgver.tar.gz")
+  sha512sums=('SKIP')
+fi
+
+prepare() {
+  local src
+  src=$(_srcdir)
+
+  if [[ -f "$srcdir/cargo-vendor-$pkgver.tar.xz" ]]; then
+    tar -xf "$srcdir/cargo-vendor-$pkgver.tar.xz" -C "$srcdir"
+
+    mkdir -p "$src/.cargo"
+    cat > "$src/.cargo/config.toml" <<EOF
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "$srcdir/vendor"
+EOF
+  fi
 }
 
 build() {
-  cd "$pkgname"
+  local src
+  src=$(_srcdir)
+  cd "$src"
   export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
   cargo build --release --locked --target-dir=target
 }
 
 package() {
+  local src
+  src=$(_srcdir)
+  cd "$src"
+
   install -d -m755 "$pkgdir/etc/dsnap/export-keys"
   install -d -m755 "$pkgdir/etc/dsnap/profiles.d"
   install -d -m755 "$pkgdir/etc/dsnap/profile-keys"
-  mkdir -p "$pkgdir/usr/bin/"
-  cd "$pkgname"
-  install -Dm755 "target/release/dsnap" "${pkgdir}/usr/bin/dsnap"
-  install -Dm644 "packaging/systemd/dsnap-auto-upgrade.service" "${pkgdir}/usr/lib/systemd/system/dsnap-auto-upgrade.service"
-  install -Dm644 "packaging/systemd/dsnap-auto-upgrade.timer" "${pkgdir}/usr/lib/systemd/system/dsnap-auto-upgrade.timer"
-  install -Dm644 "target/release/build/dsnap-"*"/out/dsnap.8" "${pkgdir}/usr/share/man/man8/dsnap.8"
-  for manpage in "target/release/build/dsnap-"*"/out/dsnap-"*.8; do
-    install -Dm644 "$manpage" "${pkgdir}/usr/share/man/man8/$(basename "$manpage")"
+
+  install -Dm755 target/release/dsnap "$pkgdir/usr/bin/dsnap"
+
+  install -Dm644 packaging/systemd/dsnap-auto-upgrade.service \
+    "$pkgdir/usr/lib/systemd/system/dsnap-auto-upgrade.service"
+
+  install -Dm644 packaging/systemd/dsnap-auto-upgrade.timer \
+    "$pkgdir/usr/lib/systemd/system/dsnap-auto-upgrade.timer"
+
+  MAN_OUT=$(dirname "$(find target/release/build -type f -name dsnap.8 -print -quit)")
+
+  install -Dm644 "$MAN_OUT/dsnap.8" \
+    "$pkgdir/usr/share/man/man8/dsnap.8"
+
+  for manpage in "$MAN_OUT"/dsnap-*.8; do
+    [[ -e "$manpage" ]] || continue
+    install -Dm644 "$manpage" \
+      "$pkgdir/usr/share/man/man8/$(basename "$manpage")"
   done
-  install -Dm644 "target/release/build/dsnap-"*"/out/dsnap.bash" "${pkgdir}/usr/share/bash-completion/completions/dsnap"
-  install -Dm644 "target/release/build/dsnap-"*"/out/_dsnap" "${pkgdir}/usr/share/zsh/site-functions/_dsnap"
-  install -Dm644 "target/release/build/dsnap-"*"/out/dsnap.fish" "${pkgdir}/usr/share/fish/vendor_completions.d/dsnap.fish"
+
+  install -Dm644 "$MAN_OUT/dsnap.bash" \
+    "$pkgdir/usr/share/bash-completion/completions/dsnap"
+
+  install -Dm644 "$MAN_OUT/_dsnap" \
+    "$pkgdir/usr/share/zsh/site-functions/_dsnap"
+
+  install -Dm644 "$MAN_OUT/dsnap.fish" \
+    "$pkgdir/usr/share/fish/vendor_completions.d/dsnap.fish"
 }

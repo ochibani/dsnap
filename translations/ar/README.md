@@ -126,7 +126,7 @@ systemd وصفحات man وإكمالات الصدفة. إضافة الحزمة 
 
 ### Arch Linux
 
-يبني ملف PKGBUILD حزمة `distro-snapper-git`:
+يبني ملف PKGBUILD حزمة `distro-snapper` من وسم إصدار:
 
 ```sh
 cd packaging

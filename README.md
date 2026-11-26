@@ -126,7 +126,7 @@ a repository is the user's or package manager's responsibility.
 
 ### Arch Linux
 
-The PKGBUILD builds the `distro-snapper-git` package:
+The PKGBUILD builds the `distro-snapper` package from a release tag:
 
 ```sh
 cd packaging

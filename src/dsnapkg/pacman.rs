@@ -125,8 +125,7 @@ pub fn bootstrap(snapshot: &str) -> Result<(), Error> {
                               format!("Failed to install base packages in snapshot {} chroot.", snapshot)));
     }
 
-    //TODO replace distro-snapper-git with distro-snapper
-    let paru_args = format!("paru --dbpath {} -r {} -Sy --noconfirm --overwrite '*' distro-snapper-git",
+    let paru_args = format!("paru --dbpath {} -r {} -Sy --noconfirm --overwrite '*' distro-snapper",
                             dbpath, target_path);
     let paru_install = Command::new("su")
         .arg("aur")
@@ -135,7 +134,7 @@ pub fn bootstrap(snapshot: &str) -> Result<(), Error> {
         .status()?;
     if !paru_install.success() {
         return Err(Error::new(ErrorKind::Other,
-                              format!("Failed to install paru package in snapshot {} chroot.", snapshot)));
+                              format!("Failed to install distro-snapper package in snapshot {} chroot.", snapshot)));
     }
 
     // Copy pacman database from tmp
