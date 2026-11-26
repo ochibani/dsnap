@@ -17,6 +17,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: update-obs-packaging
+  cancel-in-progress: false
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -27,25 +31,33 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Fetch tags
-        run: git fetch --tags --force
+      - name: Fetch tags and OBS branch
+        run: |
+          git fetch --tags --force
+          git fetch origin obs || true
 
       - name: Make update-obs.sh executable
         run: chmod +x packaging/update-obs.sh
+
+      - name: Create OBS branch
+        run: git checkout -B obs
 
       - name: Regenerate OBS files
         env:
           SYNC_PKGBUILD: "1"
         run: ./packaging/update-obs.sh
 
-      - name: Commit generated files
+      - name: Commit and publish generated files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add packaging/obs
+
+          git add -f packaging/obs
+
           if git diff --cached --quiet; then
             echo "No OBS changes"
             exit 0
           fi
-          git commit -m "chore: update OBS packaging"
-          git push origin HEAD:main
+
+          git commit -m "chore: update OBS sources"
+          git push --force-with-lease origin obs
