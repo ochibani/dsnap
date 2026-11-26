@@ -1,0 +1,47 @@
+name: update obs packaging
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'packaging/PKGBUILD'
+      - 'packaging/debian/**'
+      - 'packaging/update-obs.sh'
+      - '.github/workflows/update-obs.yml'
+    paths-ignore:
+      - 'packaging/obs/**'
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Regenerate OBS files
+        env:
+          SYNC_PKGBUILD: "1"
+        run: bash packaging/update-obs.sh
+
+      - name: Commit generated files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packaging/obs
+          if git diff --cached --quiet; then
+            echo "No OBS changes"
+            exit 0
+          fi
+          git commit -m "chore: update OBS packaging [skip ci]"
+          git push origin HEAD:main
