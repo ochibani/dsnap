@@ -30,10 +30,13 @@ jobs:
       - name: Fetch tags
         run: git fetch --tags --force
 
+      - name: Make update-obs.sh executable
+        run: chmod +x packaging/update-obs.sh
+
       - name: Regenerate OBS files
         env:
           SYNC_PKGBUILD: "1"
-        run: bash packaging/update-obs.sh
+        run: ./packaging/update-obs.sh
 
       - name: Commit generated files
         run: |
