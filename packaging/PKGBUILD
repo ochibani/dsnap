@@ -9,7 +9,7 @@ license=("AGPL-3.0-only")
 depends=("btrfs-progs" "coreutils" "curl" "efibootmgr" "gnupg" "pacman" "python-anytree")
 makedepends=("cargo" "pkgconf" "curl" "openssl" "python")
 optdepends=("grub" "systemd" "paru: AUR package support")
-provides=("distro-snapper-git")
+provides=("distro-snapper")
 conflicts=("distro-snapper-git")
 
 _srcdir() {

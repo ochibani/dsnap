@@ -1,0 +1,24 @@
+Source: distro-snapper
+Section: utils
+Priority: optional
+Maintainer: Chibani <11yzyv86j@relay.firefox.com>
+Build-Depends:
+  debhelper-compat (= 13),
+  cargo,
+  rustc,
+  pkg-config,
+  libssl-dev,
+  libcurl4-openssl-dev,
+  libpython3-dev,
+  file
+Standards-Version: 4.7.0
+Homepage: https://github.com/ochibani/dsnap
+Rules-Requires-Root: no
+
+Package: distro-snapper
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, btrfs-progs, curl, efibootmgr, gnupg, python3-anytree
+Suggests: systemd
+Description: Manage immutable tree-shaped btrfs snapshots
+ dsnap manages tree-shaped btrfs snapshot layouts, letting a system be
+ deployed, restored and exported as immutable snapshot trees.

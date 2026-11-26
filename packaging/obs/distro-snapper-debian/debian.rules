@@ -1,0 +1,33 @@
+#!/usr/bin/make -f
+
+export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	cargo build --release --locked --no-default-features --features "base-import,btrfs,grub,import,lock,apt"
+
+override_dh_auto_test:
+
+override_dh_auto_install:
+	install -d -m755 debian/distro-snapper/etc/dsnap/export-keys
+	install -d -m755 debian/distro-snapper/etc/dsnap/profiles.d
+	install -d -m755 debian/distro-snapper/etc/dsnap/profile-keys
+	install -Dm755 target/release/dsnap debian/distro-snapper/usr/bin/dsnap
+	install -Dm644 packaging/systemd/dsnap-auto-upgrade.service debian/distro-snapper/usr/lib/systemd/system/dsnap-auto-upgrade.service
+	install -Dm644 packaging/systemd/dsnap-auto-upgrade.timer debian/distro-snapper/usr/lib/systemd/system/dsnap-auto-upgrade.timer
+	MAN_OUT=$$(dirname "$$(find target/release/build -type f -name dsnap.8 -print -quit)"); \
+	test -f "$$MAN_OUT/dsnap.8"; \
+	install -Dm644 "$$MAN_OUT/dsnap.8" debian/distro-snapper/usr/share/man/man8/dsnap.8; \
+	for manpage in "$$MAN_OUT"/dsnap-*.8; do \
+		[ -e "$$manpage" ] || continue; \
+		install -m644 "$$manpage" debian/distro-snapper/usr/share/man/man8/; \
+	done; \
+	install -Dm644 "$$MAN_OUT/dsnap.bash" debian/distro-snapper/usr/share/bash-completion/completions/dsnap; \
+	install -Dm644 "$$MAN_OUT/_dsnap" debian/distro-snapper/usr/share/zsh/vendor-completions/_dsnap; \
+	install -Dm644 "$$MAN_OUT/dsnap.fish" debian/distro-snapper/usr/share/fish/vendor_completions.d/dsnap.fish
+
+# Ship the units but never enable or start them (disabled by default).
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start
