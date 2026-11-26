@@ -465,3 +465,9 @@ This file is generated from conventional commit subjects.
 
 - Flatten OBS packaging layout
 
+- Normalize update-obs.sh file mode
+
+- Strip Cargo.toml.orig from OBS vendor archives
+
+- Add python3 to Debian build dependencies
+
