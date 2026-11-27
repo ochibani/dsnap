@@ -19,10 +19,37 @@ package profile, configuration and GRUB boot target.
 - [Easy installation path](docs/partitioning.md#easy-installation-path)
 - [Hard requirements](docs/partitioning.md#hard-requirements)
 - [Recommended layout](docs/partitioning.md#recommended-layout)
+- [First boot setup](#first-boot-setup)
 - [Build from source](#build-from-source)
 - [Build packages](#build-packages)
 - [Command reference](docs/commands.md)
 - [History and credits](#history-and-credits)
+
+<a id="first-boot-setup"></a>
+## First boot setup
+
+On a freshly installed system, initialize the first working tree before doing
+any other snapshot work. The installer leaves the base deployment in place;
+`dsnap` needs to create the first usable tree from it and select that tree for
+the next boot.
+
+Run these commands once as root:
+
+```sh
+sudo dsnap clone -s 0
+sudo dsnap deploy -s 1
+sudo reboot
+```
+
+The clone creates the first working tree from snapshot 0. The deploy command
+makes snapshot 1 the next boot target, and the reboot applies the GRUB and
+mount changes.
+
+Run the commands separately as shown. Do not replace the first newline with
+`&`, because that would send the clone operation to the background instead of
+waiting for it to finish.
+
+Skip this step only if your installer already created and deployed snapshot 1.
 
 <a id="build-from-source"></a>
 ## Build from source
