@@ -1,5 +1,5 @@
-use crate::{chr_delete, deploy_recovery, detect_distro, get_aux_tmp, get_part, get_recovery_aux_tmp,
-            get_recovery_tmp, get_tmp, post_transactions, prepare};
+use crate::{chr_delete, deploy_recovery, detect_distro, dsnap_umounts_quiet, get_aux_tmp, get_part,
+            get_recovery_aux_tmp, get_recovery_tmp, get_tmp, post_transactions, prepare};
 
 use chrono::{Local, NaiveDateTime};
 use nix::mount::{MntFlags, mount, MsFlags, umount2};
@@ -461,10 +461,11 @@ pub fn update_boot(snapshot: &str, secondary: bool) -> Result<(), Error> {
         // Partition path
         let part = get_part()?;
 
-        // Prepare for update
-        prepare(snapshot)?;
-
         let result = (|| -> Result<(), Error> {
+            // Prepare for update inside the guarded block so a failed mount
+            // setup does not leave the chroot behind.
+            prepare(snapshot)?;
+
             // Remove grub configurations older than 30 days
             if Path::new(&format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}/BAK/", snapshot,grub)).try_exists()? && snapshot != "0" {
                 delete_old_grub_files(&format!("/.snapshots/rootfs/snapshot-chr{}/boot/{}", snapshot,grub).as_str())?;
@@ -512,6 +513,7 @@ pub fn update_boot(snapshot: &str, secondary: bool) -> Result<(), Error> {
             Ok(())
         })();
         if let Err(e) = result {
+            let _ = dsnap_umounts_quiet(snapshot, "chr");
             let _ = chr_delete(snapshot);
             return Err(e);
         }

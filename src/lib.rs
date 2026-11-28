@@ -1080,7 +1080,7 @@ pub fn dsnap_umounts(i: &str, chr: &str) -> nix::Result<()> {
 // Tolerant variant for teardown paths: detaching a recursive live-root bind
 // can also detach prepared chroot mounts, so EINVAL/ENOENT must not abort the
 // rest of the unwind.
-fn dsnap_umounts_quiet(i: &str, chr: &str) -> nix::Result<()> {
+pub fn dsnap_umounts_quiet(i: &str, chr: &str) -> nix::Result<()> {
     dsnap_umounts_inner(i, chr, true)
 }
 
