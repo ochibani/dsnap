@@ -972,10 +972,14 @@ pub fn dsnap_mounts(i: &str, chr: &str) -> nix::Result<()> {
     mount(Some("devpts"), format!("{}/dev/pts", snapshot_path).as_str(),
           Some("devpts"), MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC,
           Some("newinstance,ptmxmode=666,gid=5,mode=620"))?;
-    // Point /dev/ptmx at this instance instead of the host's legacy ptmx
+    // Point /dev/ptmx at this instance instead of the host's legacy ptmx.
+    // The bind target must exist before mount(2); the fresh /dev tmpfs above
+    // does not create it, so create an empty placeholder first.
+    let ptmx = format!("{}/dev/ptmx", snapshot_path);
+    File::create(&ptmx)
+         .map_err(|e| nix::errno::Errno::from_i32(e.raw_os_error().unwrap_or(5)))?;
     mount(Some(format!("{}/dev/pts/ptmx", snapshot_path).as_str()),
-          format!("{}/dev/ptmx", snapshot_path).as_str(),
-          Some(file_system), MsFlags::MS_BIND, None::<&str>)?;
+          ptmx.as_str(), Some(file_system), MsFlags::MS_BIND, None::<&str>)?;
     // Mount private shared memory inside the chroot
     DirBuilder::new().recursive(true)
                      .create(format!("{}/dev/shm", snapshot_path))
